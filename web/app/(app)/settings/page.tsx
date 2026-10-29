@@ -5,14 +5,36 @@ import { Field, Select, useToast } from "@/components/ui";
 import { api, t } from "@/lib/api";
 import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
-import type { Pipeline, Settings, Stage } from "@/lib/types";
+import type { AiStatus, Pipeline, Settings, Stage } from "@/lib/types";
+import { InboxSettings } from "@/components/settings/InboxSettings";
+import { JevSettings } from "@/components/settings/JevSettings";
+import { ModelSettings } from "@/components/settings/ModelSettings";
+
+const TABS = [["pipelines", "Pipelines"], ["models", "AI models"], ["sorting", "Email sorting"], ["inbox", "Email inbox"]] as const;
+type Tab = (typeof TABS)[number][0];
 
 export default function SettingsPage() {
+  const { tenant } = useSession();
+  const [tab, setTab] = useState<Tab>("pipelines");
+  const settings = useData<Settings>(t(tenant.id, "/settings"));
+  const status = useData<AiStatus>(t(tenant.id, "/ai/status"));
+  useEffect(() => {
+    const h = window.location.hash.slice(1) as Tab;
+    if (TABS.some(([k]) => k === h)) setTab(h);
+  }, []);
+  const go = (k: Tab) => { setTab(k); history.replaceState(null, "", `#${k}`); };
+  const ready = settings.data && status.data;
   return (
     <>
-      <div className="page-head"><div><h1>Settings</h1><p>Pipelines and how the AI assistant works for this workspace.</p></div></div>
-      <Pipelines />
-      <AiSettings />
+      <div className="page-head"><div><h1>Settings</h1><p>Pipelines, AI models and how the email assistant works for this workspace.</p></div></div>
+      <div className="tabs" role="tablist">
+        {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => go(k)}>{l}</button>)}
+      </div>
+      {tab === "pipelines" && <Pipelines />}
+      {tab !== "pipelines" && !ready && <p className="muted">{settings.error || status.error || "Loading…"}</p>}
+      {ready && tab === "models" && <ModelSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
+      {ready && tab === "sorting" && <JevSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
+      {ready && tab === "inbox" && <InboxSettings settings={settings.data!} onSaved={settings.setData} />}
     </>
   );
 }
@@ -91,50 +113,6 @@ function Pipelines() {
         </div>
       ))}
       <button className="link-btn" style={{ marginTop: 10 }} onClick={addStage}>Add a stage</button>
-    </div>
-  );
-}
-
-function AiSettings() {
-  const { tenant } = useSession();
-  const toast = useToast();
-  const s = useData<Settings>(t(tenant.id, "/settings"));
-  if (!s.data) return null;
-  const v = s.data;
-  async function save(patch: Partial<Settings>) {
-    try { s.setData(await api<Settings>(t(tenant.id, "/settings"), { method: "PATCH", json: patch })); toast("Settings saved"); }
-    catch (e: any) { toast(e.message, "error"); }
-  }
-  return (
-    <div className="panel">
-      <h2 style={{ marginBottom: 12 }}>AI assistant</h2>
-      <div className="form-grid">
-        <Field label="Email inbox handling" hint="Start with review. Switch to automatic once the suggestions are reliably right.">
-          <Select value={v.inbox_mode} onChange={(m) => save({ inbox_mode: m as Settings["inbox_mode"] })}
-                  options={[["review", "I review every item"], ["auto", "Save confident items automatically"]]} />
-        </Field>
-        <Field label="Confidence needed to save automatically" hint="Only used in automatic mode. 0.90 means 90%.">
-          <input type="number" min={0.5} max={1} step={0.01} defaultValue={Number(v.auto_approve_threshold)}
-                 onBlur={(e) => save({ auto_approve_threshold: e.target.value })} disabled={v.inbox_mode !== "auto"} />
-        </Field>
-        <Field label="Check email every (minutes)">
-          <input type="number" min={5} max={1440} defaultValue={v.email_scan_minutes} onBlur={(e) => save({ email_scan_minutes: Number(e.target.value) })} />
-        </Field>
-        <label className="check field">
-          <input type="checkbox" checked={v.ai_scoring_enabled} onChange={(e) => save({ ai_scoring_enabled: e.target.checked })} />
-          Score candidates against jobs with AI
-        </label>
-        <Field label="AI model provider">
-          <Select value={v.llm_provider} onChange={(p) => save({ llm_provider: p })}
-                  options={[["anthropic", "Claude (Anthropic API)"], ["openai_compatible", "Local or private model"]]} />
-        </Field>
-        <Field label="Model name"><input defaultValue={v.llm_model} onBlur={(e) => e.target.value !== v.llm_model && save({ llm_model: e.target.value })} /></Field>
-        {v.llm_provider === "openai_compatible" && (
-          <Field label="Model server address" hint="e.g. http://host.docker.internal:11434/v1 for Ollama" wide>
-            <input defaultValue={v.llm_base_url ?? ""} onBlur={(e) => save({ llm_base_url: e.target.value || null })} />
-          </Field>
-        )}
-      </div>
     </div>
   );
 }

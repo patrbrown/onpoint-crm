@@ -41,7 +41,16 @@ export type Feedback = {
 };
 export type Doc = { id: string; file_name: string; kind: string; is_primary: boolean; extracted_text: string | null; created_at: string };
 export type SavedView = { id: string; entity: string; name: string; layout: string; config: Record<string, any>; user_id: string | null };
+export type Route = { provider: "anthropic" | "openrouter" | "openai_compatible"; model: string; base_url?: string | null; fallback?: boolean };
+export type JevConfig = { instructions?: string; categories?: Record<string, string>; use_corrections?: boolean; body_chars?: number; attachment_chars?: number };
 export type Settings = {
   llm_provider: string; llm_model: string; llm_base_url: string | null; email_agent_enabled: boolean;
   email_scan_minutes: number; inbox_mode: "review" | "auto"; auto_approve_threshold: string; ai_scoring_enabled: boolean;
+  model_routes: Record<string, Route>; triage_provider: "llm" | "jev"; jev_model: string; jev_config: JevConfig;
+  review_below_confidence: string;
+};
+export type AiStatus = {
+  can_edit: boolean; keys: { anthropic: boolean; openrouter: boolean; typesafe: boolean }; local_base_url: string;
+  tasks: Record<string, string>; suggestions: Record<string, string[]>;
+  jev_defaults: Required<JevConfig>;
 };

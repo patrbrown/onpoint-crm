@@ -35,7 +35,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
    docker compose up -d --build
    ```
    Then open **http://localhost:3000** and sign in. After pulling new code, run the same command again.
-5. **Outlook:** on the *Email inbox* page choose *Connect Outlook*, open the Microsoft link it shows, enter the
+5. **AI models (optional):** Claude does everything by default. To cut costs, add `OPENROUTER_API_KEY` (and/or
+   `TYPESAFE_API_KEY` for Jev email sorting) to `.env`, run `docker compose up -d`, then choose models per task in
+   *Settings → AI models* and *Settings → Email sorting*. Each setting has a **Test** button.
+6. **Outlook:** on the *Email inbox* page choose *Connect Outlook*, open the Microsoft link it shows, enter the
    code and sign in. New mail is then checked every 15 minutes (change it in *Settings*) while the app runs.
    The first check looks back 7 days. Access is read-only: nothing in Outlook is moved, flagged or deleted.
 
