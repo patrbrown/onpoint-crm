@@ -179,7 +179,8 @@ function ReviewForm({ detail, tenantId, onDone, toast }: { detail: Detail; tenan
 
       <div className="form-grid">
         {specs.map((s) => (
-          <Field key={s.key} label={s.label} wide={s.wide}>
+          <Field key={s.key} label={s.label} wide={s.wide}
+                 hint={s.key === "description" && ex._description_from ? `Copied word for word from ${(ex._description_from as string[]).join(", ")}` : undefined}>
             {s.kind === "long" ? <textarea rows={s.key === "description" ? 8 : 3} value={f[s.key]} onChange={(e) => setF({ ...f, [s.key]: e.target.value })} />
               : s.kind === "select" ? <Select value={f[s.key]} onChange={(v) => setF({ ...f, [s.key]: v })} placeholder="Not set" options={s.options!} />
               : <input value={f[s.key]} onChange={(e) => setF({ ...f, [s.key]: e.target.value })} />}

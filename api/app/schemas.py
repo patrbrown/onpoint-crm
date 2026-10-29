@@ -46,6 +46,20 @@ class ContactCreate(_Base):
     notes: str | None = None
 
 
+class ContactRow(_Base):
+    """A contact added from the client page (the client comes from the URL)."""
+    first_name: str = Field(min_length=1)
+    last_name: str | None = None
+    title: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    mobile: str | None = None
+    linkedin_url: str | None = None
+    is_primary: bool = False
+    is_hiring_manager: bool = False
+    notes: str | None = None
+
+
 class JobCreate(_Base):
     title: str
     client_id: UUID | None = None

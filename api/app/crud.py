@@ -57,7 +57,12 @@ async def update_row(conn: asyncpg.Connection, table: str, tenant_id: UUID, row_
         return await get_row(conn, table, tenant_id, row_id)
     sets = ", ".join(f"{c} = ${i}" for i, c in enumerate(values, start=3))
     sql = f"update public.{table} set {sets} where tenant_id = $1 and id = $2 returning *"
-    r = await conn.fetchrow(sql, tenant_id, row_id, *values.values())
+    try:
+        r = await conn.fetchrow(sql, tenant_id, row_id, *values.values())
+    except asyncpg.UniqueViolationError as exc:
+        raise HTTPException(409, f"Duplicate: {exc.detail or exc}") from exc
+    except asyncpg.ForeignKeyViolationError as exc:
+        raise HTTPException(422, f"Invalid reference: {exc.detail or exc}") from exc
     if r is None:
         raise HTTPException(404, f"{table[:-1]} not found")
     return _record(r)

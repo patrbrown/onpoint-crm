@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     openai_compatible_base_url: str = "http://localhost:11434/v1"  # e.g. Ollama
     openai_compatible_api_key: str = "not-needed"
 
+    # TypeSafe Jev (email triage). Keys live here, never in the database.
+    typesafe_api_key: str = ""
+    typesafe_base_url: str = "https://api.typesafe.ai/v1"
+
     # Microsoft Graph (email agent)
     ms_tenant_id: str = ""
     ms_client_id: str = ""

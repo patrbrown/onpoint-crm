@@ -14,6 +14,43 @@ function useForm<T extends Record<string, any>>(initial: T) {
 
 const str = (v: any) => (v === null || v === undefined ? "" : String(v));
 
+export type ContactDraft = { first_name: string; last_name: string; title: string; email: string; phone: string; is_hiring_manager: boolean };
+export const emptyContact = (): ContactDraft => ({ first_name: "", last_name: "", title: "", email: "", phone: "", is_hiring_manager: true });
+const filled = (c: ContactDraft) => [c.first_name, c.last_name, c.email, c.phone, c.title].some((v) => v.trim());
+
+/** Several contacts entered at once, one row each. Empty rows are ignored. */
+export function ContactRows({ rows, onChange }: { rows: ContactDraft[]; onChange: (r: ContactDraft[]) => void }) {
+  const set = (i: number, patch: Partial<ContactDraft>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <div className="contact-rows">
+      {rows.map((r, i) => (
+        <fieldset key={i} className="contact-row">
+          <legend className="sr-only">Contact {i + 1}</legend>
+          <input aria-label="First name" placeholder="First name" value={r.first_name} onChange={(e) => set(i, { first_name: e.target.value })} />
+          <input aria-label="Last name" placeholder="Last name" value={r.last_name} onChange={(e) => set(i, { last_name: e.target.value })} />
+          <input aria-label="Title" placeholder="Title" value={r.title} onChange={(e) => set(i, { title: e.target.value })} />
+          <button type="button" className="icon-btn" aria-label={`Remove contact ${i + 1}`} disabled={rows.length === 1}
+                  onClick={() => onChange(rows.filter((_, j) => j !== i))}>×</button>
+          <input aria-label="Email" type="email" placeholder="Email" value={r.email} onChange={(e) => set(i, { email: e.target.value })} />
+          <input aria-label="Phone" type="tel" placeholder="Phone" value={r.phone} onChange={(e) => set(i, { phone: e.target.value })} />
+          <label className="check" title="Hiring manager"><input type="checkbox" checked={r.is_hiring_manager}
+            onChange={(e) => set(i, { is_hiring_manager: e.target.checked })} /> Hiring manager</label>
+        </fieldset>
+      ))}
+      <button type="button" className="link-btn" onClick={() => onChange([...rows, emptyContact()])}>Add another contact</button>
+    </div>
+  );
+}
+
+/** Saves the filled-in rows for a client. Returns how many were saved. */
+export async function saveContacts(tenantId: string, clientId: string, rows: ContactDraft[]): Promise<number> {
+  const list = rows.filter(filled);
+  for (const r of list) if (!r.first_name.trim()) throw new Error("Each contact needs a first name");
+  if (!list.length) return 0;
+  await api(t(tenantId, `/clients/${clientId}/contacts`), { method: "POST", json: list.map((r) => clean({ ...r, first_name: r.first_name.trim() })) });
+  return list.length;
+}
+
 export function ClientForm({ client, onSaved, onCancel }: { client?: Client; onSaved: (c: Client) => void; onCancel: () => void }) {
   const { tenant } = useSession();
   const toast = useToast();
@@ -23,14 +60,24 @@ export function ClientForm({ client, onSaved, onCancel }: { client?: Client; onS
     fee_terms: str(client?.fee_terms), status: client?.status ?? "active", notes: str(client?.notes),
   });
   const [error, setError] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<ContactDraft[]>([emptyContact()]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!client && contacts.some((r) => filled(r) && !r.first_name.trim())) { setError("Each contact needs a first name"); return; }
+    let saved: Client;
     try {
-      const saved = await api<Client>(t(tenant.id, client ? `/clients/${client.id}` : "/clients"),
+      saved = await api<Client>(t(tenant.id, client ? `/clients/${client.id}` : "/clients"),
         { method: client ? "PATCH" : "POST", json: clean(f) });
-      toast(client ? "Client saved" : "Client added");
-      onSaved(saved);
-    } catch (err: any) { setError(err.message); }
+    } catch (err: any) { setError(err.message); return; }
+    if (!client) {
+      try {
+        const n = await saveContacts(tenant.id, saved.id, contacts);
+        toast(n ? `Client added with ${n} contact${n > 1 ? "s" : ""}` : "Client added");
+      } catch (err: any) {
+        toast(`Client added, but the contacts weren't saved: ${err.message}. Add them from the client page.`, "error");
+      }
+    } else toast("Client saved");
+    onSaved(saved);
   }
   return (
     <form onSubmit={submit}>
@@ -48,6 +95,7 @@ export function ClientForm({ client, onSaved, onCancel }: { client?: Client; onS
           <input value={f.fee_terms} onChange={on("fee_terms")} /></Field>
         <Field label="Notes" wide><textarea value={f.notes} onChange={on("notes")} /></Field>
       </div>
+      {!client && <><h3 style={{ margin: "18px 0 8px" }}>Contacts</h3><ContactRows rows={contacts} onChange={setContacts} /></>}
       <div className="form-foot">
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
         <button className="btn primary">{client ? "Save client" : "Add client"}</button>
@@ -104,6 +152,36 @@ export function ContactForm({ clientId, contact, onSaved, onCancel }: {
         {contact && <button type="button" className="btn danger" style={{ marginRight: "auto" }} onClick={remove}>Delete</button>}
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
         <button className="btn primary">{contact ? "Save contact" : "Add contact"}</button>
+      </div>
+    </form>
+  );
+}
+
+/** Add several contacts to an existing client. */
+export function AddContacts({ clientId, onSaved, onCancel }: { clientId: string; onSaved: () => void; onCancel: () => void }) {
+  const { tenant } = useSession();
+  const toast = useToast();
+  const [rows, setRows] = useState<ContactDraft[]>([emptyContact(), emptyContact()]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      const n = await saveContacts(tenant.id, clientId, rows);
+      if (!n) { setError("Fill in at least one contact"); return; }
+      toast(`${n} contact${n > 1 ? "s" : ""} added`);
+      onSaved();
+    } catch (err: any) { setError(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <form onSubmit={submit}>
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <p className="muted" style={{ marginBottom: 10 }}>Add as many as you like; empty rows are skipped. Open a contact afterwards to add notes or LinkedIn.</p>
+      <ContactRows rows={rows} onChange={setRows} />
+      <div className="form-foot">
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" disabled={busy}>{busy ? "Saving…" : "Save contacts"}</button>
       </div>
     </form>
   );

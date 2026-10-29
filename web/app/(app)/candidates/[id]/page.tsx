@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CandidateForm } from "@/components/CandidateForm";
+import { ContactDetails } from "@/components/ContactDetails";
 import { FeedbackForm } from "@/components/FeedbackForm";
 import { ResumeUpload } from "@/components/ResumeUpload";
 import { Drawer, Select, Status, Tags, useToast } from "@/components/ui";
@@ -88,19 +89,7 @@ export default function CandidatePage() {
         </div>
 
         <div>
-          <div className="panel">
-            <h2 style={{ marginBottom: 10 }}>Contact</h2>
-            <dl className="facts">
-              <dt>Email</dt><dd>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : "None"}</dd>
-              <dt>Phone</dt><dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : "None"}</dd>
-              <dt>LinkedIn</dt><dd>{c.linkedin_url ? <a href={c.linkedin_url} target="_blank" rel="noreferrer">Profile</a> : "None"}</dd>
-              <dt>Experience</dt><dd>{c.years_experience ? `${Number(c.years_experience)} years` : "Unknown"}</dd>
-              <dt>Authorization</dt><dd>{c.work_authorization || "Unknown"}</dd>
-              <dt>Desired rate</dt><dd>{c.desired_rate || "Unknown"}</dd>
-              <dt>Availability</dt><dd>{c.availability || "Unknown"}</dd>
-              <dt>Source</dt><dd>{label(c.source)}</dd>
-            </dl>
-          </div>
+          <ContactDetails candidate={c} onSaved={(saved) => cand.setData(saved)} />
           <div className="panel">
             <h2 style={{ marginBottom: 10 }}>Jobs</h2>
             {apps.data?.length ? apps.data.map((a) => (

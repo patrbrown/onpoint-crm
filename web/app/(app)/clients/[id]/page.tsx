@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import { ClientForm, ContactForm } from "@/components/ClientForms";
+import { AddContacts, ClientForm, ContactForm } from "@/components/ClientForms";
 import { Drawer, Status, useToast } from "@/components/ui";
 import { api, t } from "@/lib/api";
 import { compensation, fullName, label, place } from "@/lib/format";
@@ -19,7 +19,7 @@ export default function ClientPage() {
   const client = useData<Client>(t(tenant.id, `/clients/${id}`));
   const contacts = useData<Contact[]>(t(tenant.id, `/contacts?client_id=${id}`));
   const jobs = useData<Job[]>(t(tenant.id, `/jobs?client_id=${id}&limit=1000`));
-  const [drawer, setDrawer] = useState<"none" | "edit" | "contact">("none");
+  const [drawer, setDrawer] = useState<"none" | "edit" | "contact" | "contacts">("none");
   const [contact, setContact] = useState<Contact | undefined>();
 
   if (client.error) return <div className="form-error">{client.error}</div>;
@@ -41,7 +41,7 @@ export default function ClientPage() {
         <div className="actions">
           <Status value={c.status} text={label(c.status)} />
           <button className="btn" onClick={() => setDrawer("edit")}>Edit</button>
-          <button className="btn primary" onClick={() => { setContact(undefined); setDrawer("contact"); }}>Add contact</button>
+          <button className="btn primary" onClick={() => setDrawer("contacts")}>Add contacts</button>
         </div>
       </div>
       <div className="two-col">
@@ -85,6 +85,9 @@ export default function ClientPage() {
       </div>
       <Drawer title="Edit client" open={drawer === "edit"} onClose={() => setDrawer("none")}>
         <ClientForm client={c} onCancel={() => setDrawer("none")} onSaved={() => { setDrawer("none"); client.reload(); }} />
+      </Drawer>
+      <Drawer title={`Add contacts to ${c.name}`} open={drawer === "contacts"} onClose={() => setDrawer("none")}>
+        <AddContacts clientId={c.id} onCancel={() => setDrawer("none")} onSaved={() => { setDrawer("none"); contacts.reload(); }} />
       </Drawer>
       <Drawer title={contact ? "Edit contact" : "Add contact"} open={drawer === "contact"} onClose={() => setDrawer("none")}>
         <ContactForm key={contact?.id ?? "new"} clientId={c.id} contact={contact} onCancel={() => setDrawer("none")}

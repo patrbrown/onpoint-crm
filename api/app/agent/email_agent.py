@@ -16,6 +16,9 @@ import asyncpg
 from rapidfuzz import fuzz
 
 from ..llm import LLMProvider
+import httpx
+
+from ..services import jd_markdown, jev
 from ..services.storage import Storage
 from ..services.text_extract import SUPPORTED, extract_text
 from . import matching
@@ -75,11 +78,69 @@ async def feedback_examples(conn: asyncpg.Connection, tenant_id: UUID, target: s
     return out
 
 
-def _email_prompt(msg, attachments: list[tuple[str, str]]) -> str:
+def _email_prompt(msg, attachments: list[tuple[str, str]], per_attachment: int = 6000) -> str:
     parts = [f"From: {msg.from_name or ''} <{msg.from_address or ''}>", f"Subject: {msg.subject}", "", msg.body_text[:8000]]
     for name, text in attachments:
-        parts += ["", f"--- Attachment: {name} ---", text[:6000]]
+        parts += ["", f"--- Attachment: {name} ---", text[:per_attachment]]
     return "\n".join(parts)
+
+
+def apply_jd_attachments(data: dict, atts: list[dict]) -> None:
+    """If the req came with the JD as an attachment, the job description is that file, copied word for word
+    as Markdown (not the model's summary of it)."""
+    by_name = {a["name"]: a for a in atts if a.get("markdown")}
+    picked = jd_markdown.pick_jd_attachments(list(by_name))
+    if not picked:
+        return
+    if len(picked) == 1:
+        description = by_name[picked[0]]["markdown"]
+    else:
+        description = "\n\n".join(f"# {PurePath(n).stem}\n\n{by_name[n]['markdown']}" for n in picked)
+    data["description"] = description.strip()
+    data["_description_from"] = picked
+
+
+def jev_client():
+    """Factory (replaced in tests)."""
+    return jev.JevClient()
+
+
+async def triage_email(conn, llm: LLMProvider, tenant_id: UUID, msg, readable: list[tuple[str, str]],
+                       settings: asyncpg.Record | None) -> tuple[str, float, dict]:
+    """Decide what kind of email this is. Uses Jev when the workspace has switched to it (falling back to the
+    LLM if Jev is unavailable), otherwise the LLM. Returns (type, confidence, triage details)."""
+    examples = await feedback_examples(conn, tenant_id, "classification")
+    use_jev = settings is not None and settings.get("triage_provider") == "jev"
+    if use_jev:
+        cfg = jev.merged_config(settings.get("jev_config"))
+        corrections = [f"{e['summary']}, but it was actually {e['correct']}" + (f" ({e['comment']})" if e.get("comment") else "")
+                       for e in examples]
+        request = jev.build_request(cfg, settings.get("jev_model") or "jev-latest", msg.subject,
+                                    f"{msg.from_name or ''} <{msg.from_address or ''}>", msg.body_text, readable, corrections)
+        try:
+            t = await jev_client().classify(request)
+            kind, conf = t.classification, t.confidence
+            details = {"provider": "jev", "model": t.model, "probabilities": t.probabilities}
+            # Safety net: Jev says "not recruiting" but isn't sure, and a recruiting type is a real possibility.
+            floor = float(settings.get("review_below_confidence") or 0)
+            if kind not in ACTIONABLE and conf < floor:
+                alt = max(ACTIONABLE, key=lambda c: t.probabilities.get(c, 0))
+                if t.probabilities.get(alt, 0) >= 0.15:
+                    details["unsure"] = {"was": kind, "was_confidence": round(conf, 3)}
+                    kind, conf = alt, t.probabilities[alt]
+            return kind, conf, details
+        except jev.JevError as exc:
+            log.warning("Jev unavailable, using the LLM for this email: %s", exc)
+            fallback = str(exc)
+        except httpx.HTTPError as exc:
+            log.warning("Jev unreachable, using the LLM for this email: %s", exc)
+            fallback = f"Jev unreachable: {exc}"
+    cls, _ = await llm.complete_json(with_examples(CLASSIFY_SYSTEM, examples), _email_prompt(msg, readable), 400)
+    kind = cls.get("classification") if cls.get("classification") in CLASSES else "other"
+    details = {"provider": llm.name, "model": llm.model, "reason": cls.get("reason")}
+    if use_jev:
+        details["jev_error"] = fallback
+    return kind, _clamp(cls.get("confidence")), details
 
 
 async def _store_message(conn, storage: Storage, tenant_id: UUID, account_id: UUID, msg) -> tuple[UUID, list[dict]] | None:
@@ -100,14 +161,20 @@ async def _store_message(conn, storage: Storage, tenant_id: UUID, account_id: UU
                 text = extract_text(a.name, a.data)
             except Exception:   # noqa: BLE001 — a broken attachment shouldn't stop the email
                 text = None
+        md = None
+        if PurePath(a.name).suffix.lower() in jd_markdown.CONVERTIBLE:
+            try:
+                md = jd_markdown.to_markdown(a.name, a.data)
+            except Exception:  # noqa: BLE001
+                md = None
         safe = re.sub(r"[^\w.\-]+", "_", a.name)
         path = f"{tenant_id}/email/{email_id}/{safe}"
         await storage.put(path, a.data, a.content_type)
         att_id = await conn.fetchval(
             """insert into public.email_attachments (tenant_id, email_id, file_name, mime_type, size_bytes, storage_path,
-               extracted_text) values ($1,$2,$3,$4,$5,$6,$7) returning id""",
-            tenant_id, email_id, a.name, a.content_type, len(a.data), path, text)
-        atts.append({"id": att_id, "name": a.name, "text": text})
+               extracted_text, markdown) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id""",
+            tenant_id, email_id, a.name, a.content_type, len(a.data), path, text, md)
+        atts.append({"id": att_id, "name": a.name, "text": text, "markdown": md})
     return email_id, atts
 
 
@@ -154,12 +221,9 @@ async def process_message(conn, storage: Storage, llm: LLMProvider, tenant_id: U
     result.new += 1
     readable = [(a["name"], a["text"]) for a in atts if a["text"]]
 
-    examples = await feedback_examples(conn, tenant_id, "classification")
-    cls, _ = await llm.complete_json(with_examples(CLASSIFY_SYSTEM, examples), _email_prompt(msg, readable), 400)
-    kind = cls.get("classification") if cls.get("classification") in CLASSES else "other"
-    conf = _clamp(cls.get("confidence"))
-    await conn.execute("update public.email_messages set classification = $2, confidence = $3, processed_at = now() "
-                       "where id = $1", email_id, kind, round(conf, 2))
+    kind, conf, triage = await triage_email(conn, llm, tenant_id, msg, readable, settings)
+    await conn.execute("update public.email_messages set classification = $2, confidence = $3, triage = $4, "
+                       "processed_at = now() where id = $1", email_id, kind, round(conf, 2), triage)
     if kind not in ACTIONABLE:
         result.ignored += 1
         return
@@ -173,7 +237,9 @@ async def extract_and_queue(conn, llm: LLMProvider, tenant_id: UUID, email_id: U
     notes = await feedback_examples(conn, tenant_id, "extraction", 5)
     items: list[tuple[dict, float, list[dict]]] = []
     if kind == "job_requisition":
-        data, _ = await llm.complete_json(with_examples(JOB_EXTRACT_SYSTEM, notes), _email_prompt(msg, readable))
+        data, _ = await llm.complete_json(with_examples(JOB_EXTRACT_SYSTEM, notes),
+                                          _email_prompt(msg, readable, per_attachment=20000), 6000)
+        apply_jd_attachments(data, atts)
         clients = await matching.client_matches(conn, tenant_id, data.get("client_name"), msg.from_address)
         dupes = await matching.duplicate_jobs(conn, tenant_id, data.get("title"), data.get("reference_code"),
                                               [c["id"] for c in clients])
@@ -231,7 +297,7 @@ class StoredEmail:
 
 async def load_email(conn, tenant_id: UUID, email_id: UUID) -> tuple[StoredEmail, list[dict]]:
     e = await conn.fetchrow("select * from public.email_messages where tenant_id = $1 and id = $2", tenant_id, email_id)
-    atts = await conn.fetch("select id, file_name as name, extracted_text as text from public.email_attachments "
+    atts = await conn.fetch("select id, file_name as name, extracted_text as text, markdown from public.email_attachments "
                             "where tenant_id = $1 and email_id = $2", tenant_id, email_id)
     return (StoredEmail(e["provider_message_id"], e["subject"] or "", e["from_address"], e["from_name"], e["body_text"] or ""),
             [dict(a) for a in atts])

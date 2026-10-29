@@ -204,3 +204,29 @@ async def delete_view(tenant_id: UUID, item_id: UUID, user: CurrentUser = Depend
     async with user_tx(user.id) as conn:
         await crud.delete_row(conn, "saved_views", tenant_id, item_id)
     return {"deleted": str(item_id)}
+
+
+# ── Several contacts at once ────────────────────────────────────────────────
+
+@router.post("/clients/{client_id}/contacts", status_code=201)
+async def add_contacts(tenant_id: UUID, client_id: UUID, body: list[s.ContactRow],
+                       user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    """Add one or more contacts to a client in one go: all are saved, or none are."""
+    if not body:
+        raise HTTPException(422, "Add at least one contact")
+    async with user_tx(user.id) as conn:
+        await crud.get_row(conn, "clients", tenant_id, client_id)   # 404 if not this tenant's client
+        emails = [c.email.lower() for c in body if c.email]
+        if len(emails) != len(set(emails)):
+            raise HTTPException(422, "The same email address is listed twice")
+        taken = await conn.fetch("select email from public.client_contacts where tenant_id = $1 and email = any($2::citext[])",
+                                 tenant_id, emails)
+        if taken:
+            raise HTTPException(409, f"Already a contact: {', '.join(r['email'] for r in taken)}")
+        if any(c.is_primary for c in body):
+            await conn.execute("update public.client_contacts set is_primary = false where tenant_id = $1 and client_id = $2",
+                               tenant_id, client_id)
+        out = []
+        for c in body:
+            out.append(await crud.insert_row(conn, "client_contacts", tenant_id, {**c.model_dump(), "client_id": client_id}))
+        return out

@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { JdImport } from "@/components/JdImport";
 import { JobForm } from "@/components/JobForm";
+import { Markdown } from "@/components/Markdown";
 import { PipelineBoard } from "@/components/PipelineBoard";
 import { ResumeUpload } from "@/components/ResumeUpload";
 import { Drawer, Status, Tags, useToast } from "@/components/ui";
@@ -24,6 +26,7 @@ export default function JobPage() {
   const client = useData<Client>(job.data?.client_id ? t(tenant.id, `/clients/${job.data.client_id}`) : null);
   const contact = useData<Contact>(job.data?.hiring_contact_id ? t(tenant.id, `/contacts/${job.data.hiring_contact_id}`) : null);
   const [editing, setEditing] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
 
   const pipeline = useMemo(() => {
@@ -78,8 +81,9 @@ export default function JobPage() {
 
       <div className="two-col">
         <div className="panel">
-          <div className="panel-head"><h2>Job description</h2></div>
-          {j.description ? <div className="prose">{j.description}</div> : <p className="muted">No description yet.</p>}
+          <div className="panel-head"><h2>Job description</h2>
+            <button className="btn small" onClick={() => setImporting(true)}>{j.description ? "Import from a file" : "Add from a JD file"}</button></div>
+          {j.description ? <Markdown text={j.description} /> : <p className="muted">No description yet. Add it from the JD attached to the client’s email, or upload the file.</p>}
         </div>
         <div>
           <div className="panel">
@@ -105,6 +109,9 @@ export default function JobPage() {
         </div>
       </div>
 
+      <Drawer title="Job description from a file" open={importing} onClose={() => setImporting(false)}>
+        <JdImport jobId={j.id} current={j.description} onSaved={() => { setImporting(false); job.reload(); }} />
+      </Drawer>
       <Drawer title="Edit job" open={editing} onClose={() => setEditing(false)}>
         <JobForm job={j} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); job.reload(); }} />
       </Drawer>
