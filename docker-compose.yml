@@ -1,0 +1,11 @@
+# Desktop setup: the API (and, in the next phases, the web UI and the email worker) run here;
+# the database lives in Supabase. Start with:  docker compose up -d --build
+services:
+  api:
+    build: ./api
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.secrets:/app/.secrets   # Microsoft sign-in token cache (never committed)
+    restart: unless-stopped
