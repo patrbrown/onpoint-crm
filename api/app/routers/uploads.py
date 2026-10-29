@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from ..auth import CurrentUser, get_current_user
 from ..db import user_tx
-from ..llm import LLMProvider, get_provider
+from ..llm import LLMProvider
+from ..llm.tenant import llm_for_task
 from ..services import bulk_import as bi
 from ..services.candidates import candidate_from_resume, upsert_candidate
 from ..services.storage import Storage, get_storage
@@ -19,9 +20,7 @@ MAX_ZIP = 300 * 1024 * 1024
 
 
 async def tenant_llm(conn, tenant_id: UUID) -> LLMProvider:
-    st = await conn.fetchrow(
-        "select llm_provider, llm_model, llm_base_url from public.tenant_settings where tenant_id = $1", tenant_id)
-    return get_provider(st["llm_provider"], st["llm_model"], st["llm_base_url"]) if st else get_provider()
+    return await llm_for_task(conn, tenant_id, "resume_parsing")
 
 
 def llm_dep() -> LLMProvider | None:

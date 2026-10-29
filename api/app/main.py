@@ -9,7 +9,7 @@ from .config import get_settings
 from .db import close_pool, get_pool
 from .errors import FriendlyErrors
 from .agent import worker
-from .routers import account, crm, inbox, job_descriptions, uploads
+from .routers import account, ai_settings, crm, inbox, job_descriptions, uploads
 
 
 @asynccontextmanager
@@ -44,6 +44,7 @@ app.include_router(crm.router)
 app.include_router(uploads.router)
 app.include_router(inbox.router)
 app.include_router(job_descriptions.router)
+app.include_router(ai_settings.router)
 
 
 @app.get("/health")

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_compatible_base_url: str = "http://localhost:11434/v1"  # e.g. Ollama
     openai_compatible_api_key: str = "not-needed"
+    openrouter_api_key: str = ""
 
     # TypeSafe Jev (email triage). Keys live here, never in the database.
     typesafe_api_key: str = ""

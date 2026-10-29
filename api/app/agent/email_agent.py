@@ -180,10 +180,11 @@ async def _store_message(conn, storage: Storage, tenant_id: UUID, account_id: UU
 
 async def _queue(conn, tenant_id: UUID, email_id: UUID, kind: str, extracted: dict, confidence: float,
                  matches: list[dict], llm: LLMProvider) -> asyncpg.Record:
+    used = getattr(llm, "last_used", llm)   # with fallback on, record the model that actually answered
     return await conn.fetchrow(
         """insert into public.inbox_items (tenant_id, email_id, item_type, confidence, extracted, suggested_matches,
            llm_provider, llm_model, prompt_version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *""",
-        tenant_id, email_id, kind, round(confidence, 2), extracted, matches, llm.name, llm.model, PROMPT_VERSION)
+        tenant_id, email_id, kind, round(confidence, 2), extracted, matches, used.name, used.model, PROMPT_VERSION)
 
 
 def _auto_links(kind: str, matches: list[dict]) -> dict | None:
@@ -213,7 +214,7 @@ def _auto_links(kind: str, matches: list[dict]) -> dict | None:
 
 
 async def process_message(conn, storage: Storage, llm: LLMProvider, tenant_id: UUID, account_id: UUID, msg,
-                          settings: asyncpg.Record, result: ScanResult) -> None:
+                          settings: asyncpg.Record, result: ScanResult, triage_llm: LLMProvider | None = None) -> None:
     stored = await _store_message(conn, storage, tenant_id, account_id, msg)
     if stored is None:
         return
@@ -221,7 +222,7 @@ async def process_message(conn, storage: Storage, llm: LLMProvider, tenant_id: U
     result.new += 1
     readable = [(a["name"], a["text"]) for a in atts if a["text"]]
 
-    kind, conf, triage = await triage_email(conn, llm, tenant_id, msg, readable, settings)
+    kind, conf, triage = await triage_email(conn, triage_llm or llm, tenant_id, msg, readable, settings)
     await conn.execute("update public.email_messages set classification = $2, confidence = $3, triage = $4, "
                        "processed_at = now() where id = $1", email_id, kind, round(conf, 2), triage)
     if kind not in ACTIONABLE:
@@ -304,7 +305,7 @@ async def load_email(conn, tenant_id: UUID, email_id: UUID) -> tuple[StoredEmail
 
 
 async def scan_account(conn: asyncpg.Connection, storage: Storage, llm: LLMProvider, mailbox: Mailbox,
-                       account: asyncpg.Record) -> ScanResult:
+                       account: asyncpg.Record, triage_llm: LLMProvider | None = None) -> ScanResult:
     """One pass over a mailbox. `conn` must be a service connection (the agent runs without a logged-in user)."""
     tenant_id, account_id = account["tenant_id"], account["id"]
     settings = await conn.fetchrow("select * from public.tenant_settings where tenant_id = $1", tenant_id)
@@ -317,7 +318,7 @@ async def scan_account(conn: asyncpg.Connection, storage: Storage, llm: LLMProvi
         before = replace(result)   # counts roll back with the transaction if this email fails
         try:
             async with conn.transaction():   # one email = one unit of work
-                await process_message(conn, storage, llm, tenant_id, account_id, msg, settings, result)
+                await process_message(conn, storage, llm, tenant_id, account_id, msg, settings, result, triage_llm)
             latest = max(latest, msg.received_at)
         except Exception as exc:  # noqa: BLE001
             result.__dict__.update(before.__dict__)

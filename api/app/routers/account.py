@@ -4,6 +4,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import Field
 from fastapi.responses import Response
 
 from ..auth import CurrentUser, get_current_user
@@ -30,8 +31,27 @@ async def me(user: CurrentUser = Depends(get_current_user)) -> dict:
     return {"profile": dict(profile), "tenants": [dict(t) for t in tenants]}
 
 
+class Route(_Base):
+    provider: Literal["anthropic", "openrouter", "openai_compatible"]
+    model: str = Field(min_length=1, max_length=200)
+    base_url: str | None = Field(default=None, max_length=500)
+    fallback: bool = False
+
+
+class JevConfig(_Base):
+    instructions: str | None = Field(default=None, max_length=4000)
+    categories: dict[Literal["job_requisition", "resume", "interview_feedback", "client_correspondence",
+                             "candidate_reply", "other"], str] | None = None
+    use_corrections: bool | None = None
+    body_chars: int | None = Field(default=None, ge=500, le=30000)
+    attachment_chars: int | None = Field(default=None, ge=0, le=10000)
+
+
+AI_FIELDS = {"llm_provider", "llm_model", "llm_base_url", "model_routes", "triage_provider", "jev_model", "jev_config"}
+
+
 class SettingsUpdate(_Base):
-    llm_provider: Literal["anthropic", "openai_compatible"] | None = None
+    llm_provider: Literal["anthropic", "openrouter", "openai_compatible"] | None = None
     llm_model: str | None = None
     llm_base_url: str | None = None
     email_agent_enabled: bool | None = None
@@ -39,6 +59,11 @@ class SettingsUpdate(_Base):
     inbox_mode: Literal["review", "auto"] | None = None
     auto_approve_threshold: Decimal | None = None
     ai_scoring_enabled: bool | None = None
+    model_routes: dict[Literal["default", "email_triage", "email_extraction", "resume_parsing"], Route | None] | None = None
+    triage_provider: Literal["llm", "jev"] | None = None
+    jev_model: str | None = Field(default=None, min_length=1, max_length=100)
+    jev_config: JevConfig | None = None
+    review_below_confidence: Decimal | None = Field(default=None, ge=0, le=1)
 
 
 @router.get("/tenants/{tenant_id}/settings")
@@ -53,7 +78,13 @@ async def get_settings_(tenant_id: UUID, user: CurrentUser = Depends(get_current
 @router.patch("/tenants/{tenant_id}/settings")
 async def update_settings(tenant_id: UUID, body: SettingsUpdate, user: CurrentUser = Depends(get_current_user)) -> dict:
     values = body.model_dump(exclude_unset=True)
+    if "model_routes" in values:   # drop cleared routes (null) so the task uses the default again
+        values["model_routes"] = {k: v for k, v in values["model_routes"].items() if v}
+    if "jev_config" in values:
+        values["jev_config"] = {k: v for k, v in values["jev_config"].items() if v is not None}
     async with user_tx(user.id) as conn:
+        if AI_FIELDS & values.keys() and not await conn.fetchval("select public.is_tenant_admin($1)", tenant_id):
+            raise HTTPException(403, "Only workspace owners and admins can change AI models")
         if values:
             sets = ", ".join(f"{c} = ${i}" for i, c in enumerate(values, start=2))
             r = await conn.fetchrow(f"update public.tenant_settings set {sets} where tenant_id = $1 returning *",

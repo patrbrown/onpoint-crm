@@ -29,11 +29,12 @@ class OpenAICompatibleProvider(LLMProvider):
 
     name = "openai_compatible"
 
-    def __init__(self, model: str, base_url: str, api_key: str = "not-needed"):
+    def __init__(self, model: str, base_url: str, api_key: str = "not-needed", extra_headers: dict | None = None):
         super().__init__(model)
         from openai import AsyncOpenAI
 
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key or "not-needed", default_headers=extra_headers,
+                                   timeout=180)
 
     async def complete(self, system: str, user: str, max_tokens: int = 2000) -> LLMResult:
         resp = await self._client.chat.completions.create(
@@ -58,3 +59,30 @@ class FakeProvider(LLMProvider):
     async def complete(self, system: str, user: str, max_tokens: int = 2000) -> LLMResult:
         self.calls.append((system, user))
         return LLMResult(text=self.responses.pop(0), provider=self.name, model=self.model)
+
+
+class FallbackProvider(LLMProvider):
+    """Use the chosen model; if it errors or returns something unreadable, ask the fallback (normally Claude).
+    `last_used` says which one actually answered."""
+
+    def __init__(self, primary: LLMProvider, fallback: LLMProvider):
+        super().__init__(primary.model)
+        self.primary, self.fallback = primary, fallback
+        self.name = primary.name
+        self.last_used: LLMProvider = primary
+
+    async def complete(self, system: str, user: str, max_tokens: int = 2000) -> LLMResult:
+        try:
+            self.last_used = self.primary
+            return await self.primary.complete(system, user, max_tokens)
+        except Exception:  # noqa: BLE001
+            self.last_used = self.fallback
+            return await self.fallback.complete(system, user, max_tokens)
+
+    async def complete_json(self, system: str, user: str, max_tokens: int = 4000):
+        try:
+            self.last_used = self.primary
+            return await self.primary.complete_json(system, user, max_tokens)
+        except Exception:  # noqa: BLE001 — includes unreadable JSON from smaller open models
+            self.last_used = self.fallback
+            return await self.fallback.complete_json(system, user, max_tokens)

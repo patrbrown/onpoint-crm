@@ -13,7 +13,7 @@ from ..agent.email_agent import ScanResult, extract_and_queue, load_email
 from ..auth import CurrentUser, get_current_user
 from ..db import service_tx, user_tx
 from ..llm import LLMProvider
-from ..llm.tenant import llm_for_tenant
+from ..llm.tenant import llm_for_task
 from ..schemas import _Base
 from ..services import graph
 from ..services.storage import Storage, get_storage
@@ -148,7 +148,7 @@ async def reject(tenant_id: UUID, item_id: UUID, body: Reject, user: CurrentUser
             await conn.execute("update public.email_messages set classification = $2 where id = $1",
                                item["email_id"], body.correct_type)
             msg, atts = await load_email(conn, tenant_id, item["email_id"])
-            llm = llm_override or await llm_for_tenant(conn, tenant_id)
+            llm = llm_override or await llm_for_task(conn, tenant_id, "email_extraction")
             new_items = await extract_and_queue(conn, llm, tenant_id, item["email_id"], body.correct_type, 1.0, msg,
                                                 atts, None, ScanResult())
     return {"rejected": str(item_id), "new_items": [str(i) for i in new_items]}
@@ -188,7 +188,7 @@ async def reprocess_email(tenant_id: UUID, email_id: UUID, body: Reject, user: C
             tenant_id, email_id, {"classification": body.correct_type, "was": e["classification"]}, body.comment, user.id)
         await conn.execute("update public.email_messages set classification = $2 where id = $1", email_id, body.correct_type)
         msg, atts = await load_email(conn, tenant_id, email_id)
-        llm = llm_override or await llm_for_tenant(conn, tenant_id)
+        llm = llm_override or await llm_for_task(conn, tenant_id, "email_extraction")
         new_items = await extract_and_queue(conn, llm, tenant_id, email_id, body.correct_type, 1.0, msg, atts, None,
                                             ScanResult())
     return {"new_items": [str(i) for i in new_items]}
