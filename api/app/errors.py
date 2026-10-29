@@ -28,13 +28,19 @@ def explain(exc: Exception) -> tuple[int, str]:
         return 502, f"The AI service returned an error: {text[:200]}"
     if module.startswith("openai"):
         return 502, f"The local AI model couldn't be reached or returned an error: {text[:200]}"
-    if isinstance(exc, httpx.HTTPStatusError) and "/storage/" in str(exc.request.url):
-        code = exc.response.status_code
-        if code in (400, 404) and "bucket" in exc.response.text.lower():
-            return 502, "Supabase Storage has no bucket named “documents”. Create it (private) under Storage."
-        if code in (401, 403):
-            return 502, "Supabase Storage refused the upload. Check SUPABASE_SERVICE_ROLE_KEY (the sb_secret key) in .env."
-        return 502, f"Couldn't save the file to Supabase Storage ({code}): {exc.response.text[:150]}"
+    from .services.storage import StorageError
+    if isinstance(exc, StorageError):
+        body = exc.body.lower()
+        if exc.status == 0:
+            return 502, exc.body
+        if "bucket" in body and "not found" in body:
+            return 502, "Supabase Storage has no bucket named “documents”. Create it (private) under Storage, then try again."
+        if exc.status in (401, 403) or "jws" in body or "jwt" in body or "signature" in body or "unauthorized" in body:
+            return 502, ("Supabase Storage didn't accept the secret key. Check SUPABASE_SERVICE_ROLE_KEY in .env is the "
+                         "sb_secret key (or the legacy service_role key), then run docker compose up -d.")
+        if "mime" in body or "size" in body:
+            return 502, f"Supabase Storage rejected this file type or size: {exc.body[:150]}"
+        return 502, f"Couldn't save the file to Supabase Storage ({exc.status}): {exc.body[:150]}"
     if isinstance(exc, httpx.ConnectError):
         return 502, "Couldn't reach Supabase Storage. Check SUPABASE_URL in .env."
     if isinstance(exc, ValueError) and "JSON" in text:

@@ -34,7 +34,12 @@ export async function api<T = any>(path: string, init: RequestInit & { json?: un
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(`${API}${path}`, { ...init, headers, body });
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, { ...init, headers, body });
+  } catch {
+    throw new ApiError(0, "Couldn’t reach the CRM service. Check it’s running (docker compose ps), then try again.");
+  }
   const text = await res.text();
   const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
   if (!res.ok) throw new ApiError(res.status, messageFrom(data, res.status));

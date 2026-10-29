@@ -8,9 +8,8 @@ from app.services.storage import get_storage
 
 class BrokenStorage:
     async def put(self, path, data, content_type=None):
-        req = httpx.Request("POST", "https://x.supabase.co/storage/v1/object/documents/" + path)
-        raise httpx.HTTPStatusError("bad", request=req,
-                                    response=httpx.Response(400, request=req, text='{"error":"Bucket not found"}'))
+        from app.services.storage import StorageError
+        raise StorageError(400, '{"statusCode":"404","error":"Bucket not found","message":"Bucket not found"}')
 
 
 def test_unexpected_errors_reach_the_browser_with_a_reason(api_client):
@@ -31,3 +30,9 @@ def test_ai_errors_are_explained():
         pass
     AuthenticationError.__module__ = "anthropic"
     assert "API key" in explain(AuthenticationError("401"))[1]
+
+
+def test_new_style_keys_are_not_sent_as_bearer_tokens():
+    from app.services.storage import _auth_headers
+    assert _auth_headers("sb_secret_abc") == {"apikey": "sb_secret_abc"}
+    assert _auth_headers("eyJhbGciOi.x.y")["Authorization"] == "Bearer eyJhbGciOi.x.y"
