@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import close_pool, get_pool
+from .errors import FriendlyErrors
 from .agent import worker
 from .routers import account, crm, inbox, uploads
 
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="OnPoint CRM API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(FriendlyErrors)   # added first = inner, so CORS headers still wrap its responses
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().cors_origins.split(",")],
