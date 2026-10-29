@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import close_pool, get_pool
-from .routers import crm, uploads
+from .routers import account, crm, uploads
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ async def check_failed(request: Request, exc: asyncpg.CheckViolationError) -> JS
     return JSONResponse(status_code=422, content={"detail": f"Invalid value: {exc.constraint_name}"})
 
 
+app.include_router(account.router)
 app.include_router(crm.router)
 app.include_router(uploads.router)
 
