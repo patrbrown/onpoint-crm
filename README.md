@@ -8,7 +8,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 | Phase | What | State |
 |---|---|---|
 | v1a | Database, clients/contacts, jobs, candidates, pipelines, saved views, interview feedback, notes, resume upload (single + ZIP/CSV bulk), web UI | **Done** |
-| v1b | Outlook email agent (read-only), review inbox, feedback, auto-mode toggle | Waiting on Microsoft app registration |
+| v1b | Outlook email agent (read-only), review inbox, feedback that trains the agent, automatic mode | **Done** |
 | v1c | Candidate portal + consent | Next |
 | v1d | Website job posting (embed for Replit) | Next |
 
@@ -28,12 +28,21 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
    ```
 3. **Keys:** copy `.env.example` to `.env` and fill it in. Everything Supabase is under *Project Settings*:
    the connection string under *Database* (use the **Session pooler** string), and the URL plus the
-   publishable and secret keys under *API Keys*. Add your Anthropic API key.
+   publishable and secret keys under *API Keys*. Add your Anthropic API key, and the Microsoft
+   Application (client) ID and Directory (tenant) ID as `MS_CLIENT_ID` and `MS_TENANT_ID`.
 4. **Run:** with Docker Desktop open, in this folder:
    ```
    docker compose up -d --build
    ```
    Then open **http://localhost:3000** and sign in. After pulling new code, run the same command again.
+5. **Outlook:** on the *Email inbox* page choose *Connect Outlook*, open the Microsoft link it shows, enter the
+   code and sign in. New mail is then checked every 15 minutes (change it in *Settings*) while the app runs.
+   The first check looks back 7 days. Access is read-only: nothing in Outlook is moved, flagged or deleted.
+
+## Database updates
+
+When a new file appears in `supabase/migrations/`, paste it into the Supabase SQL Editor and run it once.
+Files run in name order; each only needs to run once.
 
 ## Development
 

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     ms_tenant_id: str = ""
     ms_client_id: str = ""
     ms_token_cache_path: str = "./.secrets/msal_cache.json"
+    email_worker_enabled: bool = True   # set false in tests or to pause the agent
 
     cors_origins: str = "http://localhost:3000"
 

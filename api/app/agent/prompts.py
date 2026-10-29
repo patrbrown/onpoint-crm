@@ -1,7 +1,7 @@
 """All prompts in one place, independent of which LLM runs them. Bump PROMPT_VERSION on any change
 so match scores and inbox items record which prompt produced them."""
 
-PROMPT_VERSION = "2026-10-29.1"
+PROMPT_VERSION = "2026-10-29.2"
 
 RESUME_EXTRACT_SYSTEM = """You extract structured candidate data from resumes for a healthcare IT recruiting agency.
 Return JSON with exactly these keys (use null or [] when absent; never invent data):
@@ -60,3 +60,15 @@ def with_examples(system: str, examples: list[dict]) -> str:
         lines.append(f"- {ex.get('summary', '')} → correct answer: {ex.get('correct')}"
                      + (f" (note: {ex['comment']})" if ex.get("comment") else ""))
     return system + "\n".join(lines)
+
+FEEDBACK_EXTRACT_SYSTEM = """You extract interview feedback that a client sent to a healthcare IT recruiting agency.
+Return JSON with exactly these keys (null or [] when absent; never invent ratings that were not given):
+{
+  "candidate_name": str|null, "candidate_email": str|null, "job_title": str|null,
+  "from_name": str|null, "from_email": str|null,
+  "overall_rating": int 1-5|null, "recommendation": "strong_yes"|"yes"|"maybe"|"no"|"strong_no"|null,
+  "scorecard": [{"criterion": str, "rating": int 1-5, "comment": str|null}],
+  "strengths": str|null, "concerns": str|null, "notes": str|null (next steps, scheduling, anything else),
+  "confidence": number between 0 and 1
+}
+Map clear verbal verdicts to a recommendation ("let's move forward" → "yes", "not a fit" → "no")."""

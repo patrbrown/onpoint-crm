@@ -7,13 +7,16 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import close_pool, get_pool
-from .routers import account, crm, uploads
+from .agent import worker
+from .routers import account, crm, inbox, uploads
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await get_pool()
+    worker.start()
     yield
+    worker.stop()
     await close_pool()
 
 
@@ -37,6 +40,7 @@ async def check_failed(request: Request, exc: asyncpg.CheckViolationError) -> JS
 app.include_router(account.router)
 app.include_router(crm.router)
 app.include_router(uploads.router)
+app.include_router(inbox.router)
 
 
 @app.get("/health")

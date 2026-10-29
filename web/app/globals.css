@@ -205,3 +205,24 @@ td .sub { display: block; color: var(--ink-3); font-size: 12px; }
   .two-col, .form-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ── Email inbox ───────────────────────────────────────────────────────── */
+.conn { display: grid; gap: 10px; }
+.conn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.conn-main { flex: 1; min-width: 220px; }
+.conn-error { color: var(--red); font-size: 12.5px; margin-top: 2px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); flex: none; }
+.dot.ok { background: var(--green); }
+.dot.bad { background: var(--red); }
+.device-code { background: var(--teal-wash); border-radius: var(--radius-m); padding: 14px 16px; }
+.device-code .code { font-size: 30px; font-weight: 700; letter-spacing: .12em; color: var(--teal-ink); margin: 6px 0; user-select: all; }
+.type { font-size: 12px; font-weight: 600; white-space: nowrap; padding-left: 8px; border-left: 3px solid var(--ink-3); }
+.t-job_requisition { border-color: var(--teal); }
+.t-resume { border-color: #7c6fd6; }
+.t-interview_feedback { border-color: var(--amber); }
+.email-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 12px 14px; }
+.email-head { display: grid; gap: 2px; margin-bottom: 6px; }
+.atts { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.warn { background: var(--amber-wash); color: #7a520d; border-radius: var(--radius-s); padding: 8px 10px; margin-bottom: 12px; font-size: 13px; }
+.warn a { color: inherit; text-decoration: underline; margin: 0 2px; }
+code { font-size: 12.5px; background: var(--line-2); padding: 1px 4px; border-radius: 3px; }

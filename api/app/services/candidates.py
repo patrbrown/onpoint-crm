@@ -49,13 +49,19 @@ async def parse_resume(llm: LLMProvider, text: str) -> dict[str, Any]:
 
 
 async def upsert_candidate(conn: asyncpg.Connection, tenant_id: UUID, fields: dict[str, Any], *,
-                           source: str) -> tuple[dict, bool]:
-    """Insert, or fill blanks on the existing candidate with the same email. Returns (row, created)."""
+                           source: str, existing_id: UUID | None = None) -> tuple[dict, bool]:
+    """Insert, or fill blanks on an existing candidate (the one given, else the one with the same email).
+    Returns (row, created)."""
     fields = clean_fields(fields)
     if not fields.get("first_name"):
         fields["first_name"] = (fields.get("email") or "Unknown").split("@")[0]
     existing = None
-    if fields.get("email"):
+    if existing_id:
+        existing = await conn.fetchrow("select * from public.candidates where tenant_id = $1 and id = $2",
+                                       tenant_id, existing_id)
+        if existing is None:
+            raise ValueError("The candidate to merge into no longer exists")
+    elif fields.get("email"):
         existing = await conn.fetchrow(
             "select * from public.candidates where tenant_id = $1 and email = $2", tenant_id, fields["email"])
     if existing:
