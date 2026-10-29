@@ -1,5 +1,5 @@
-# Desktop setup: the API (and, in the next phases, the web UI and the email worker) run here;
-# the database lives in Supabase. Start with:  docker compose up -d --build
+# Desktop setup: the API and web UI run here; the database lives in Supabase.
+# Start with:  docker compose up -d --build     then open http://localhost:3000
 services:
   api:
     build: ./api
@@ -8,4 +8,17 @@ services:
       - "8000:8000"
     volumes:
       - ./.secrets:/app/.secrets   # Microsoft sign-in token cache (never committed)
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
     restart: unless-stopped
