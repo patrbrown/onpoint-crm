@@ -64,7 +64,7 @@ export function ImportHistory({ openId, onOpenId }: { openId: string | null; onO
         <tbody>
           {(list.data ?? []).map((b) => (
             <tr key={b.id} className="clickable" onClick={() => onOpenId(b.id)}>
-              <td>{date(b.created_at)}<span className="sub">{new Date(b.created_at).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" })}</span></td>
+              <td>{date(b.created_at)}<span className="sub">{new Date(b.created_at).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" })}{b.uploaded_by_name ? `, by ${b.uploaded_by_name}` : ""}</span></td>
               <td>{STATUS[b.status]}{b.status === "processing" && ` (${Math.min(doneCount(b), b.total)} of ${b.total})`}</td>
               <td className="num">{b.created_count}</td>
               <td className="num">{b.updated_count}</td>

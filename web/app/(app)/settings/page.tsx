@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Field, Select, useToast } from "@/components/ui";
+import { Select } from "@/components/ui";
+import { StageEditor } from "@/components/StageEditor";
+import { TeamSettings } from "@/components/settings/TeamSettings";
 import { api, t } from "@/lib/api";
 import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
-import type { AiStatus, Pipeline, Settings, Stage } from "@/lib/types";
+import type { AiStatus, Pipeline, Settings } from "@/lib/types";
 import { InboxSettings } from "@/components/settings/InboxSettings";
 import { JevSettings } from "@/components/settings/JevSettings";
 import { ModelSettings } from "@/components/settings/ModelSettings";
 
-const TABS = [["pipelines", "Pipelines"], ["models", "AI models"], ["sorting", "Email sorting"], ["inbox", "Email inbox"]] as const;
+const TABS = [["pipelines", "Pipelines"], ["users", "Users"], ["models", "AI models"], ["sorting", "Email sorting"], ["inbox", "Email inbox"]] as const;
 type Tab = (typeof TABS)[number][0];
 
 export default function SettingsPage() {
@@ -26,12 +28,13 @@ export default function SettingsPage() {
   const ready = settings.data && status.data;
   return (
     <>
-      <div className="page-head"><div><h1>Settings</h1><p>Pipelines, AI models and how the email assistant works for this workspace.</p></div></div>
+      <div className="page-head"><div><h1>Settings</h1><p>Pipelines, users, AI models and how the email assistant works for this workspace.</p></div></div>
       <div className="tabs" role="tablist">
         {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => go(k)}>{l}</button>)}
       </div>
       {tab === "pipelines" && <Pipelines />}
-      {tab !== "pipelines" && !ready && <p className="muted">{settings.error || status.error || "Loading…"}</p>}
+      {tab === "users" && <TeamSettings />}
+      {tab !== "pipelines" && tab !== "users" && !ready && <p className="muted">{settings.error || status.error || "Loading…"}</p>}
       {ready && tab === "models" && <ModelSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
       {ready && tab === "sorting" && <JevSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
       {ready && tab === "inbox" && <InboxSettings settings={settings.data!} onSaved={settings.setData} />}
@@ -41,45 +44,11 @@ export default function SettingsPage() {
 
 function Pipelines() {
   const { tenant } = useSession();
-  const toast = useToast();
   const pipes = useData<Pipeline[]>(t(tenant.id, "/pipelines"));
   const [sel, setSel] = useState("");
-  const [stages, setStages] = useState<Stage[]>([]);
   const p = pipes.data?.find((x) => x.id === sel) ?? pipes.data?.[0];
-  useEffect(() => { if (p) setStages([...p.stages].sort((a, b) => a.position - b.position)); }, [p]);
   if (!p) return null;
 
-  async function saveStage(s: Stage, patch: Partial<Stage>) {
-    try { await api(t(tenant.id, `/stages/${s.id}`), { method: "PATCH", json: patch }); }
-    catch (e: any) { toast(e.message, "error"); pipes.reload(); }
-  }
-  async function move(i: number, d: -1 | 1) {
-    const next = [...stages];
-    const j = i + d;
-    if (j < 0 || j >= next.length) return;
-    [next[i], next[j]] = [next[j], next[i]];
-    setStages(next);
-    try {
-      await api(t(tenant.id, `/pipelines/${p!.id}/stage-order`), { method: "PUT", json: { stage_ids: next.map((s) => s.id) } });
-    } catch (e: any) { toast(e.message, "error"); pipes.reload(); }
-  }
-  async function addStage() {
-    const name = prompt("Stage name");
-    if (!name) return;
-    try {
-      await api(t(tenant.id, "/stages"), { method: "POST", json: { pipeline_id: p!.id, name, position: stages.length + 1 } });
-      pipes.reload();
-    } catch (e: any) { toast(e.message, "error"); }
-  }
-  async function removeStage(s: Stage) {
-    if (!confirm(`Delete the “${s.name}” stage? Candidates in it will show in the first stage until you move them.`)) return;
-    try {
-      await api(t(tenant.id, `/stages/${s.id}`), { method: "DELETE" });
-      const rest = stages.filter((x) => x.id !== s.id);
-      await api(t(tenant.id, `/pipelines/${p!.id}/stage-order`), { method: "PUT", json: { stage_ids: rest.map((x) => x.id) } });
-      pipes.reload();
-    } catch (e: any) { toast(e.message, "error"); }
-  }
   async function newPipeline() {
     const name = prompt("Name the new pipeline (it starts as a copy of the one shown)");
     if (!name) return;
@@ -98,21 +67,9 @@ function Pipelines() {
           <button className="btn small" onClick={newPipeline}>New pipeline</button>
         </div>
       </div>
-      <p className="muted">Rename, recolour and reorder stages. Changes apply to every job using “{p.name}”.</p>
-      {stages.map((s, i) => (
-        <div className="stage-row" key={s.id}>
-          <div className="order-btns">
-            <button aria-label={`Move ${s.name} up`} onClick={() => move(i, -1)} disabled={i === 0}>▲</button>
-            <button aria-label={`Move ${s.name} down`} onClick={() => move(i, 1)} disabled={i === stages.length - 1}>▼</button>
-          </div>
-          <input type="color" aria-label={`${s.name} colour`} defaultValue={s.color} onBlur={(e) => saveStage(s, { color: e.target.value })} />
-          <input aria-label="Stage name" defaultValue={s.name} onBlur={(e) => e.target.value !== s.name && saveStage(s, { name: e.target.value })} />
-          <Select value={s.stage_type} onChange={(v) => { setStages(stages.map((x) => x.id === s.id ? { ...x, stage_type: v } : x)); saveStage(s, { stage_type: v }); }}
-                  options={[["active", "In progress"], ["placed", "Counts as placed"], ["rejected", "Counts as rejected"], ["withdrawn", "Counts as withdrawn"]]} />
-          <button className="icon-btn" aria-label={`Delete ${s.name}`} onClick={() => removeStage(s)}>×</button>
-        </div>
-      ))}
-      <button className="link-btn" style={{ marginTop: 10 }} onClick={addStage}>Add a stage</button>
+      <p className="muted">Rename, recolour, reorder, add and remove stages. Changes apply to every job using “{p.name}”,
+        except jobs whose stages were customized on the job page.</p>
+      <StageEditor pipeline={p} onChanged={pipes.reload} />
     </div>
   );
 }

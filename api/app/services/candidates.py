@@ -84,24 +84,27 @@ async def upsert_candidate(conn: asyncpg.Connection, tenant_id: UUID, fields: di
 
 
 async def attach_document(conn: asyncpg.Connection, storage: Storage, tenant_id: UUID, candidate_id: UUID,
-                          file_name: str, data: bytes, text: str | None, kind: str = "resume") -> dict:
+                          file_name: str, data: bytes, text: str | None, kind: str = "resume",
+                          uploaded_by: UUID | None = None) -> dict:
     safe = re.sub(r"[^\w.\-]+", "_", file_name)
     path = f"{tenant_id}/candidates/{candidate_id}/{uuid4().hex[:8]}_{safe}"
     mime = mimetypes.guess_type(file_name)[0]
     await storage.put(path, data, mime)
-    has_primary = await conn.fetchval(
-        "select exists(select 1 from public.candidate_documents where candidate_id = $1 and is_primary)", candidate_id)
+    if kind == "resume":   # the newest resume is the one shown on the profile
+        await conn.execute("update public.candidate_documents set is_primary = false where candidate_id = $1 and is_primary",
+                           candidate_id)
     row = await conn.fetchrow(
-        """insert into public.candidate_documents
-           (tenant_id, candidate_id, kind, file_name, storage_path, mime_type, size_bytes, extracted_text, is_primary)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id, file_name, storage_path, is_primary""",
-        tenant_id, candidate_id, kind, file_name, path, mime, len(data), text, kind == "resume" and not has_primary)
+        """insert into public.candidate_documents (tenant_id, candidate_id, kind, file_name, storage_path, mime_type,
+                                                   size_bytes, extracted_text, is_primary, uploaded_by)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id, file_name, storage_path, is_primary, uploaded_by""",
+        tenant_id, candidate_id, kind, file_name, path, mime, len(data), text, kind == "resume", uploaded_by)
     return dict(row)
 
 
 async def candidate_from_resume(conn: asyncpg.Connection, storage: Storage, llm: LLMProvider | None,
                                 tenant_id: UUID, file_name: str, data: bytes, *, source: str,
-                                known_fields: dict[str, Any] | None = None) -> dict:
+                                known_fields: dict[str, Any] | None = None, uploaded_by: UUID | None = None,
+                                existing_id: UUID | None = None) -> dict:
     """Extract → parse → upsert → store file. Known fields (e.g. from a CSV or portal form) win over parsed ones."""
     text = extract_text(file_name, data)
     parsed: dict[str, Any] = {}
@@ -110,8 +113,13 @@ async def candidate_from_resume(conn: asyncpg.Connection, storage: Storage, llm:
     fields = {**clean_fields(parsed), **clean_fields(known_fields or {})}
     if not fields.get("email") and (m := EMAIL_RE.search(text)):
         fields["email"] = m.group(0)
-    candidate, created = await upsert_candidate(conn, tenant_id, fields, source=source)
-    doc = await attach_document(conn, storage, tenant_id, candidate["id"], file_name, data, text)
+    if existing_id and fields.get("email"):
+        # Uploading to a chosen candidate: don't take an email that already belongs to someone else.
+        if await conn.fetchval("select exists(select 1 from public.candidates where tenant_id = $1 and email = $2 "
+                               "and id <> $3)", tenant_id, fields["email"], existing_id):
+            fields.pop("email")
+    candidate, created = await upsert_candidate(conn, tenant_id, fields, source=source, existing_id=existing_id)
+    doc = await attach_document(conn, storage, tenant_id, candidate["id"], file_name, data, text, uploaded_by=uploaded_by)
     candidate.pop("embedding", None)
     return {"candidate": candidate, "created": created, "document": doc,
             "parse_confidence": parsed.get("confidence")}

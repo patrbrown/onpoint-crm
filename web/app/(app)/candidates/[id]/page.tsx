@@ -6,9 +6,12 @@ import { useEffect, useState } from "react";
 import { CandidateForm } from "@/components/CandidateForm";
 import { ContactDetails } from "@/components/ContactDetails";
 import { FeedbackForm } from "@/components/FeedbackForm";
+import { Notes } from "@/components/Notes";
+import { ResumePane } from "@/components/ResumePane";
 import { ResumeUpload } from "@/components/ResumeUpload";
-import { Drawer, Select, Status, Tags, useToast } from "@/components/ui";
-import { api, apiBlobUrl, t } from "@/lib/api";
+import { TagEditor } from "@/components/TagEditor";
+import { Drawer, Select, Status, useToast } from "@/components/ui";
+import { api, t } from "@/lib/api";
 import { date, fullName, label } from "@/lib/format";
 import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
@@ -22,18 +25,19 @@ export default function CandidatePage() {
   const cand = useData<Candidate>(t(tenant.id, `/candidates/${id}`));
   const docs = useData<Doc[]>(t(tenant.id, `/candidates/${id}/documents`));
   const apps = useData<Application[]>(t(tenant.id, `/applications?candidate_id=${id}`));
-  const [tab, setTab] = useState<"resume" | "feedback" | "notes">("resume");
+  const [tab, setTab] = useState<"notes" | "details" | "jobs">("notes");
   const [drawer, setDrawer] = useState<"none" | "edit" | "job" | "feedback" | "resume">("none");
   const [fbVersion, setFbVersion] = useState(0);
 
   if (cand.error) return <div className="form-error">{cand.error}</div>;
   if (!cand.data) return <p className="muted">Loading…</p>;
   const c = cand.data;
-  const primary = docs.data?.[0];
 
-  async function openDoc(d: Doc) {
-    try { window.open(await apiBlobUrl(t(tenant.id, `/documents/${d.id}/download`)), "_blank"); }
-    catch (e: any) { toast(e.message, "error"); }
+  async function setList(k: "skills" | "systems" | "certifications", next: string[]) {
+    const before = c;
+    cand.setData({ ...c, [k]: next });
+    try { cand.setData(await api<Candidate>(t(tenant.id, `/candidates/${id}`), { method: "PATCH", json: { [k]: next } })); }
+    catch (e: any) { cand.setData(before); toast(e.message, "error"); }
   }
   async function remove() {
     if (!confirm(`Delete ${fullName(c)}? Their resume, job links and feedback are deleted too.`)) return;
@@ -57,53 +61,41 @@ export default function CandidatePage() {
         </div>
       </div>
 
-      <div className="two-col">
+      <div className="review">
+        <ResumePane docs={docs.data} onUpload={() => setDrawer("resume")} />
         <div>
           <div className="tabs" role="tablist">
-            {(["resume", "feedback", "notes"] as const).map((k) => (
-              <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
-                {k === "resume" ? "Resume" : k === "feedback" ? "Interview feedback" : "Notes and activity"}
-              </button>
+            {([["notes", "Notes"], ["details", "Details and skills"], ["jobs", `Jobs and feedback${apps.data?.length ? ` (${apps.data.length})` : ""}`]] as const).map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
             ))}
           </div>
-          {tab === "resume" && (
-            <div className="panel">
-              <div className="panel-head">
-                <h2>{primary ? primary.file_name : "No resume on file"}</h2>
-                <div className="actions">
-                  {primary && <button className="btn small" onClick={() => openDoc(primary)}>Open original</button>}
-                  <button className="btn small" onClick={() => setDrawer("resume")}>Upload a resume</button>
-                </div>
-              </div>
-              {primary?.extracted_text ? <div className="resume-text">{primary.extracted_text}</div>
-                : <p className="muted">Upload a resume to see it here.</p>}
-              {(docs.data?.length ?? 0) > 1 && (
-                <p style={{ marginTop: 10 }}>Older files: {docs.data!.slice(1).map((d) => (
-                  <button key={d.id} className="link-btn" style={{ marginRight: 10 }} onClick={() => openDoc(d)}>{d.file_name} ({date(d.created_at)})</button>
-                ))}</p>
-              )}
-            </div>
-          )}
-          {tab === "feedback" && <FeedbackList apps={apps.data ?? []} version={fbVersion} onAdd={() => setDrawer("feedback")} />}
           {tab === "notes" && <Notes candidateId={c.id} />}
-        </div>
-
-        <div>
-          <ContactDetails candidate={c} onSaved={(saved) => cand.setData(saved)} />
-          <div className="panel">
-            <h2 style={{ marginBottom: 10 }}>Jobs</h2>
-            {apps.data?.length ? apps.data.map((a) => (
-              <p key={a.id}><Link href={`/jobs/${a.job_id}`}>{a.job_title}</Link><br />
-                <span className="muted">{a.stage_name ?? "No stage"}{a.match_score !== null ? `, match ${a.match_score}` : ""}</span></p>
-            )) : <p className="muted">Not on any job yet.</p>}
-          </div>
-          <div className="panel">
-            {c.summary && <><h3>Summary</h3><p className="prose">{c.summary}</p></>}
-            {c.systems.length > 0 && <><h3>Systems and modules</h3><p><Tags items={c.systems} tone="system" /></p></>}
-            {c.skills.length > 0 && <><h3>Skills</h3><p><Tags items={c.skills} /></p></>}
-            {c.certifications.length > 0 && <><h3>Certifications</h3><p><Tags items={c.certifications} /></p></>}
-          </div>
-          <button className="btn danger small" style={{ marginTop: 14 }} onClick={remove}>Delete candidate</button>
+          {tab === "details" && (
+            <>
+              <ContactDetails candidate={c} onSaved={(saved) => cand.setData(saved)} />
+              <div className="panel">
+                {c.summary && <><h3>Summary</h3><p className="prose">{c.summary}</p></>}
+                <TagEditor label="Skills" items={c.skills} onChange={(v) => setList("skills", v)} placeholder="Add a skill, then press Enter" />
+                <TagEditor label="Systems and modules" tone="system" items={c.systems} onChange={(v) => setList("systems", v)}
+                           placeholder="e.g. Epic Beaker" />
+                <TagEditor label="Certifications" items={c.certifications} onChange={(v) => setList("certifications", v)}
+                           placeholder="e.g. Epic Certified - Ambulatory" />
+              </div>
+              <button className="btn danger small" style={{ marginTop: 14 }} onClick={remove}>Delete candidate</button>
+            </>
+          )}
+          {tab === "jobs" && (
+            <>
+              <div className="panel">
+                <div className="panel-head"><h2>Jobs</h2><button className="btn small" onClick={() => setDrawer("job")}>Add to a job</button></div>
+                {apps.data?.length ? apps.data.map((a) => (
+                  <p key={a.id}><Link href={`/jobs/${a.job_id}`}>{a.job_title}</Link><br />
+                    <span className="muted">{a.stage_name ?? "No stage"}{a.match_score !== null ? `, match ${a.match_score}` : ""}</span></p>
+                )) : <p className="muted">Not on any job yet.</p>}
+              </div>
+              <FeedbackList apps={apps.data ?? []} version={fbVersion} onAdd={() => setDrawer("feedback")} />
+            </>
+          )}
         </div>
       </div>
 
@@ -116,11 +108,10 @@ export default function CandidatePage() {
       </Drawer>
       <Drawer title="Record interview feedback" open={drawer === "feedback"} onClose={() => setDrawer("none")}>
         <FeedbackForm apps={apps.data ?? []} onCancel={() => setDrawer("none")}
-                      onSaved={() => { setDrawer("none"); setTab("feedback"); setFbVersion((v) => v + 1); }} />
+                      onSaved={() => { setDrawer("none"); setTab("jobs"); setFbVersion((v) => v + 1); }} />
       </Drawer>
       <Drawer title="Upload a resume" open={drawer === "resume"} onClose={() => setDrawer("none")}>
-        <p className="muted">The new file becomes this candidate’s resume if its email matches theirs.</p>
-        <ResumeUpload onDone={() => { setDrawer("none"); docs.reload(); cand.reload(); }} />
+        <ResumeUpload candidateId={c.id} onDone={() => { setDrawer("none"); docs.reload(); cand.reload(); }} />
       </Drawer>
     </>
   );
@@ -174,41 +165,6 @@ function FeedbackList({ apps, version, onAdd }: { apps: Application[]; version: 
           {f.notes && <p className="prose">{f.notes}</p>}
         </div>
       ))}
-    </div>
-  );
-}
-
-const KIND: Record<string, string> = { note: "Note", call: "Call", email: "Email", meeting: "Meeting", task: "Task", system: "System" };
-
-function Notes({ candidateId }: { candidateId: string }) {
-  const { tenant } = useSession();
-  const toast = useToast();
-  const acts = useData<any[]>(t(tenant.id, `/activities?candidate_id=${candidateId}`));
-  const [kind, setKind] = useState("note");
-  const [body, setBody] = useState("");
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    if (!body.trim()) return;
-    try {
-      await api(t(tenant.id, "/activities"), { method: "POST", json: { kind, body, candidate_id: candidateId } });
-      setBody("");
-      acts.reload();
-    } catch (err: any) { toast(err.message, "error"); }
-  }
-  return (
-    <div className="panel">
-      <form onSubmit={add} style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-        <div style={{ width: 160 }}><Select value={kind} onChange={setKind} options={[["note", "Note"], ["call", "Call"], ["email", "Email"], ["meeting", "Meeting"]]} /></div>
-        <textarea placeholder="What happened?" value={body} onChange={(e) => setBody(e.target.value)} aria-label="Note" />
-        <div><button className="btn primary small">Add {kind}</button></div>
-      </form>
-      {(acts.data ?? []).map((a) => (
-        <div key={a.id} style={{ borderTop: "1px solid var(--line-2)", padding: "8px 0" }}>
-          <p className="muted" style={{ margin: 0, fontSize: 12 }}>{KIND[a.kind] ?? a.kind}, {date(a.created_at)}</p>
-          <p className="prose" style={{ margin: 0 }}>{a.body}</p>
-        </div>
-      ))}
-      {acts.data?.length === 0 && <p className="muted">No notes yet.</p>}
     </div>
   );
 }

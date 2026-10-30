@@ -39,6 +39,8 @@ export function JobForm({ job, onSaved, onCancel }: { job?: Job; onSaved: (j: Jo
   const clients = useData<Client[]>(t(tenant.id, "/clients?limit=1000"));
   const contacts = useData<Contact[]>(f.client_id ? t(tenant.id, `/contacts?client_id=${f.client_id}`) : null);
   const pipelines = useData<Pipeline[]>(t(tenant.id, "/pipelines"));
+  // A job whose stages were customized on its page uses its own pipeline, which isn't in the shared list.
+  const customStages = !!job?.pipeline_id && !!pipelines.data && !pipelines.data.some((p) => p.id === job.pipeline_id);
   const set = (k: keyof typeof EMPTY) => (v: any) => setF((x) => ({ ...x, [k]: v }));
   const on = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k)(e.target.value);
 
@@ -54,6 +56,7 @@ export function JobForm({ job, onSaved, onCancel }: { job?: Job; onSaved: (j: Jo
     };
     if (job) for (const k of ["client_id", "hiring_contact_id", "pipeline_id", "work_model", "employment_type", "rate_unit"] as const)
       if (f[k] === "") payload[k] = null;   // let edits clear a selection
+    if (customStages) delete payload.pipeline_id;   // stages customized on the job page: leave them alone
     try {
       const saved = await api<Job>(t(tenant.id, job ? `/jobs/${job.id}` : "/jobs"),
         { method: job ? "PATCH" : "POST", json: payload });
@@ -123,8 +126,9 @@ export function JobForm({ job, onSaved, onCancel }: { job?: Job; onSaved: (j: Jo
                   options={[["low", "Low"], ["normal", "Normal"], ["high", "High"], ["urgent", "Urgent"]]} />
         </Field>
         <Field label="Pipeline">
-          <Select value={f.pipeline_id} onChange={set("pipeline_id")} placeholder="Default pipeline"
-                  options={(pipelines.data ?? []).map((p) => [p.id, p.name])} />
+          {customStages ? <p className="muted" style={{ margin: "6px 0" }}>Customized for this job (Edit stages on the job page)</p>
+            : <Select value={f.pipeline_id} onChange={set("pipeline_id")} placeholder="Default pipeline"
+                      options={(pipelines.data ?? []).map((p) => [p.id, p.name])} />}
         </Field>
         <Field label="Job description" wide>
           <textarea rows={8} value={f.description} onChange={on("description")} /></Field>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { StageEditor } from "@/components/StageEditor";
 import { JdImport } from "@/components/JdImport";
 import { JobForm } from "@/components/JobForm";
 import { Markdown } from "@/components/Markdown";
@@ -22,17 +23,19 @@ export default function JobPage() {
   const toast = useToast();
   const job = useData<Job>(t(tenant.id, `/jobs/${id}`));
   const apps = useData<Application[]>(t(tenant.id, `/applications?job_id=${id}`));
-  const pipelines = useData<Pipeline[]>(t(tenant.id, "/pipelines"));
+  const pipeline = useData<Pipeline>(t(tenant.id, `/jobs/${id}/pipeline`));
   const client = useData<Client>(job.data?.client_id ? t(tenant.id, `/clients/${job.data.client_id}`) : null);
   const contact = useData<Contact>(job.data?.hiring_contact_id ? t(tenant.id, `/contacts/${job.data.hiring_contact_id}`) : null);
   const [editing, setEditing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
-
-  const pipeline = useMemo(() => {
-    const ps = pipelines.data ?? [];
-    return ps.find((p) => p.id === job.data?.pipeline_id) ?? ps.find((p) => p.is_default) ?? ps[0];
-  }, [pipelines.data, job.data]);
+  const [stagesOpen, setStagesOpen] = useState(false);
+  const counts = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const a of apps.data ?? []) if (a.stage_id) out[a.stage_id] = (out[a.stage_id] ?? 0) + 1;
+    return out;
+  }, [apps.data]);
+  const refreshBoard = () => { pipeline.reload(); apps.reload(); };
 
   if (job.error) return <div className="form-error">{job.error}</div>;
   if (!job.data) return <p className="muted">Loading…</p>;
@@ -72,8 +75,12 @@ export default function JobPage() {
       </div>
 
       <div className="panel" style={{ marginBottom: 16, padding: 12 }}>
-        {pipeline && apps.data ? (
-          <PipelineBoard stages={pipeline.stages} apps={apps.data} onMoved={(a) => apps.setData(a)} />
+        <div className="board-head">
+          <span className="muted">{pipeline.data ? (pipeline.data.is_custom ? "Stages customized for this job" : `Stages: ${pipeline.data.name}`) : ""}</span>
+          <button className="link-btn" onClick={() => setStagesOpen(true)}>Edit stages</button>
+        </div>
+        {pipeline.data && apps.data ? (
+          <PipelineBoard stages={pipeline.data.stages} apps={apps.data} onMoved={(a) => apps.setData(a)} />
         ) : <p className="muted">Loading pipeline…</p>}
         {apps.data?.length === 0 && <p className="muted" style={{ margin: "8px 4px 0" }}>
           No candidates on this job yet. Use “Add candidates” to link existing candidates or upload resumes.</p>}
@@ -109,11 +116,14 @@ export default function JobPage() {
         </div>
       </div>
 
+      <Drawer title="Stages for this job" open={stagesOpen} onClose={() => setStagesOpen(false)}>
+        {pipeline.data && <JobStages jobId={j.id} pipeline={pipeline.data} counts={counts} onChanged={refreshBoard} />}
+      </Drawer>
       <Drawer title="Job description from a file" open={importing} onClose={() => setImporting(false)}>
         <JdImport jobId={j.id} current={j.description} onSaved={() => { setImporting(false); job.reload(); }} />
       </Drawer>
       <Drawer title="Edit job" open={editing} onClose={() => setEditing(false)}>
-        <JobForm job={j} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); job.reload(); }} />
+        <JobForm job={j} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); job.reload(); refreshBoard(); }} />
       </Drawer>
       <Drawer title={`Add candidates to ${j.title}`} open={adding} onClose={() => setAdding(false)}>
         <AddCandidates jobId={j.id} linked={new Set((apps.data ?? []).map((a) => a.candidate_id))} onChange={apps.reload} />
@@ -158,6 +168,44 @@ function AddCandidates({ jobId, linked, onChange }: { jobId: string; linked: Set
           ))}
           {matches.length === 0 && <tr><td className="muted">No candidates match.</td></tr>}
         </tbody></table>
+      </div>
+    </>
+  );
+}
+
+function JobStages({ jobId, pipeline, counts, onChanged }: {
+  jobId: string; pipeline: Pipeline; counts: Record<string, number>; onChanged: () => void;
+}) {
+  const { tenant } = useSession();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  async function customize() {
+    setBusy(true);
+    try { await api(t(tenant.id, `/jobs/${jobId}/pipeline/customize`), { method: "POST" }); onChanged(); }
+    catch (e: any) { toast(e.message, "error"); } finally { setBusy(false); }
+  }
+  async function reset() {
+    if (!confirm("Go back to the workspace’s default stages? Candidates move to the stage with the same name, or the first stage.")) return;
+    setBusy(true);
+    try { await api(t(tenant.id, `/jobs/${jobId}/pipeline/reset`), { method: "POST", json: {} }); onChanged(); toast("Using the default stages again"); }
+    catch (e: any) { toast(e.message, "error"); } finally { setBusy(false); }
+  }
+  if (!pipeline.is_custom) return (
+    <>
+      <p>This job uses the shared <strong>{pipeline.name}</strong> stages from Settings, so changing them changes every job that uses them.</p>
+      <p className="muted">To add or remove stages for this job only, give it its own copy. Candidates stay where they are.</p>
+      <div className="form-foot" style={{ justifyContent: "flex-start" }}>
+        <button className="btn primary" onClick={customize} disabled={busy}>{busy ? "Copying…" : "Customize stages for this job"}</button>
+        <Link href="/settings#pipelines" className="btn">Edit the shared stages</Link>
+      </div>
+    </>
+  );
+  return (
+    <>
+      <p className="muted">These stages apply to this job only. The number beside each stage is how many candidates are in it.</p>
+      <StageEditor pipeline={pipeline} counts={counts} onChanged={onChanged} />
+      <div className="form-foot" style={{ justifyContent: "flex-start" }}>
+        <button className="link-btn" onClick={reset} disabled={busy}>Go back to the default stages</button>
       </div>
     </>
   );

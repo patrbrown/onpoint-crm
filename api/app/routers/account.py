@@ -100,10 +100,11 @@ async def update_settings(tenant_id: UUID, body: SettingsUpdate, user: CurrentUs
 async def list_documents(tenant_id: UUID, candidate_id: UUID, user: CurrentUser = Depends(get_current_user)) -> list:
     async with user_tx(user.id) as conn:
         rows = await conn.fetch(
-            """select id, kind, file_name, mime_type, size_bytes, is_primary, created_at,
-                      left(extracted_text, 20000) as extracted_text
-               from public.candidate_documents where tenant_id = $1 and candidate_id = $2
-               order by is_primary desc, created_at desc""", tenant_id, candidate_id)
+            """select d.id, d.kind, d.file_name, d.mime_type, d.size_bytes, d.is_primary, d.created_at, d.uploaded_by,
+                      tm.full_name as uploaded_by_name, left(d.extracted_text, 60000) as extracted_text
+               from public.candidate_documents d left join public.team_members tm on tm.id = d.uploaded_by
+               where d.tenant_id = $1 and d.candidate_id = $2
+               order by d.is_primary desc, d.created_at desc""", tenant_id, candidate_id)
     return [dict(r) for r in rows]
 
 

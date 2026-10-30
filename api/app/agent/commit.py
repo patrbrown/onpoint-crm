@@ -115,13 +115,20 @@ async def commit_resume(conn: asyncpg.Connection, tenant_id: UUID, item: asyncpg
         att = await conn.fetchrow("select file_name, storage_path, mime_type, size_bytes, extracted_text "
                                   "from public.email_attachments where tenant_id = $1 and id = $2", tenant_id, UUID(att_id))
         if att and att["storage_path"]:
-            has_primary = await conn.fetchval(
-                "select exists(select 1 from public.candidate_documents where candidate_id = $1 and is_primary)", cand_id)
+            # Credited to the owner of the mailbox it came from; the newest resume becomes the main one.
+            by = await conn.fetchval(
+                """select tm.id from public.email_attachments a
+                   join public.email_messages e on e.id = a.email_id
+                   join public.mail_accounts ma on ma.id = e.mail_account_id
+                   join public.team_members tm on tm.tenant_id = ma.tenant_id and tm.user_id = ma.user_id
+                   where a.id = $1""", UUID(att_id))
+            await conn.execute("update public.candidate_documents set is_primary = false where candidate_id = $1 and is_primary",
+                               cand_id)
             await conn.execute(
                 """insert into public.candidate_documents (tenant_id, candidate_id, kind, file_name, storage_path, mime_type,
-                   size_bytes, extracted_text, is_primary) values ($1,$2,'resume',$3,$4,$5,$6,$7,$8)""",
+                   size_bytes, extracted_text, is_primary, uploaded_by) values ($1,$2,'resume',$3,$4,$5,$6,$7,true,$8)""",
                 tenant_id, cand_id, att["file_name"], att["storage_path"], att["mime_type"], att["size_bytes"],
-                att["extracted_text"], not has_primary)
+                att["extracted_text"], by)
     if links.get("job_id"):
         job_id = UUID(str(links["job_id"]))
         await conn.execute(

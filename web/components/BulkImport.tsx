@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { api, t } from "@/lib/api";
 import { date } from "@/lib/format";
 import { useSession } from "@/lib/session";
+import { UploadedBy } from "./UploadedBy";
 import { Field } from "./ui";
 
 export type Batch = {
   id: string; kind: string; status: "processing" | "completed" | "completed_with_errors" | "failed"; total: number;
   created_count: number; updated_count: number; error_count: number; created_at: string; finished_at: string | null;
+  uploaded_by_name?: string | null;
   report?: { item?: string; file?: string; status: string; match?: string; warnings?: string[]; error?: string; reason?: string }[];
 };
 
@@ -84,6 +86,7 @@ export function BulkImport({ onDone }: { onDone: () => void }) {
   const [zip, setZip] = useState<File | null>(null);
   const [csv, setCsv] = useState<File | null>(null);
   const [parseUnmatched, setParseUnmatched] = useState(true);
+  const [by, setBy] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [batchId, setBatchId] = useState<string | null>(null);
@@ -97,6 +100,7 @@ export function BulkImport({ onDone }: { onDone: () => void }) {
     if (zip) body.append("zip_file", zip);
     if (csv) body.append("csv_file", csv);
     body.append("parse_unmatched", String(parseUnmatched));
+    if (by) body.append("uploaded_by", by);
     try {
       const r = await api<{ batch_id: string }>(t(tenant.id, "/candidates/bulk-import"), { method: "POST", body });
       setBatchId(r.batch_id);
@@ -126,6 +130,7 @@ export function BulkImport({ onDone }: { onDone: () => void }) {
           <input type="file" accept=".zip" onChange={(e) => setZip(e.target.files?.[0] ?? null)} /></Field>
         <Field label="CSV of candidates" hint="Columns like First Name, Last Name, Email, Phone, LinkedIn">
           <input type="file" accept=".csv" onChange={(e) => setCsv(e.target.files?.[0] ?? null)} /></Field>
+        <UploadedBy value={by} onChange={setBy} />
         <label className="check field wide">
           <input type="checkbox" checked={parseUnmatched} onChange={(e) => setParseUnmatched(e.target.checked)} />
           Also create candidates from resumes that have no CSV row

@@ -38,3 +38,8 @@ export function date(s?: string | null) {
 }
 
 export const splitList = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+
+export function dateTime(s?: string | null) {
+  if (!s) return "";
+  return new Date(s).toLocaleString("en-CA", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}

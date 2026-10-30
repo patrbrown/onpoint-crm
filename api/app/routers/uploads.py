@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from .. import crud
 from ..auth import CurrentUser, get_current_user
 from ..config import get_settings
 from ..db import service_tx, user_tx
@@ -17,6 +18,7 @@ from ..services import bulk_import as bi
 from ..services.candidates import candidate_from_resume, upsert_candidate
 from ..services.storage import Storage, get_storage
 from ..services.text_extract import SUPPORTED
+from .team import check_member, my_member_id
 
 router = APIRouter(prefix="/tenants/{tenant_id}/candidates", tags=["uploads"])
 log = logging.getLogger("uploads")
@@ -34,9 +36,11 @@ def llm_dep() -> LLMProvider | None:
 
 @router.post("/upload", status_code=201)
 async def upload_resume(tenant_id: UUID, file: UploadFile = File(...), job_id: UUID | None = Form(None),
+                        candidate_id: UUID | None = Form(None), uploaded_by: UUID | None = Form(None),
                         user: CurrentUser = Depends(get_current_user), storage: Storage = Depends(get_storage),
                         llm_override: LLMProvider | None = Depends(llm_dep)) -> dict:
-    """One resume → parsed candidate (merged into an existing one if the email matches). Optionally linked to a job."""
+    """One resume → parsed candidate (merged into an existing one if the email matches, or into `candidate_id`).
+    Optionally linked to a job. `uploaded_by` is the team member who uploaded it (default: you)."""
     name = file.filename or "resume"
     if not any(name.lower().endswith(ext) for ext in SUPPORTED):
         raise HTTPException(415, "Upload a PDF, DOCX or TXT resume")
@@ -45,7 +49,14 @@ async def upload_resume(tenant_id: UUID, file: UploadFile = File(...), job_id: U
         raise HTTPException(413, "File larger than 20 MB")
     async with user_tx(user.id) as conn:
         llm = llm_override or await tenant_llm(conn, tenant_id)
-        result = await candidate_from_resume(conn, storage, llm, tenant_id, name, data, source="manual")
+        by = await check_member(conn, tenant_id, uploaded_by) or await my_member_id(conn, tenant_id, user.id)
+        if candidate_id:
+            await crud.get_row(conn, "candidates", tenant_id, candidate_id)   # 404 if not this workspace's
+        try:
+            result = await candidate_from_resume(conn, storage, llm, tenant_id, name, data, source="manual",
+                                                 uploaded_by=by, existing_id=candidate_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         if job_id:
             await conn.execute(
                 """insert into public.applications (tenant_id, candidate_id, job_id, stage_id, source)
@@ -62,7 +73,7 @@ _running: set[asyncio.Task] = set()   # keep references so background imports ar
 
 @router.post("/bulk-import", status_code=202)
 async def bulk_import(tenant_id: UUID, zip_file: UploadFile | None = File(None), csv_file: UploadFile | None = File(None),
-                      parse_unmatched: bool = Form(True), user: CurrentUser = Depends(get_current_user),
+                      parse_unmatched: bool = Form(True), uploaded_by: UUID | None = Form(None), user: CurrentUser = Depends(get_current_user),
                       storage: Storage = Depends(get_storage),
                       llm_override: LLMProvider | None = Depends(llm_dep)) -> dict:
     """ZIP of resumes and/or a CSV. Starts the import in the background and returns straight away;
@@ -87,19 +98,20 @@ async def bulk_import(tenant_id: UUID, zip_file: UploadFile | None = File(None),
     report = [{"item": s["file"], "status": "skipped", "reason": s["reason"]} for s in skipped]
 
     async with user_tx(user.id) as conn:   # committed now, so progress is visible straight away
+        by = await check_member(conn, tenant_id, uploaded_by) or await my_member_id(conn, tenant_id, user.id)
         batch_id = await conn.fetchval(
-            """insert into public.import_batches (tenant_id, kind, total, error_count, report, created_by)
-               values ($1,$2,$3,$4,$5,$6) returning id""",
-            tenant_id, kind, len(plan.rows), len(skipped), report, user.id)
+            """insert into public.import_batches (tenant_id, kind, total, error_count, report, created_by, uploaded_by)
+               values ($1,$2,$3,$4,$5,$6,$7) returning id""",
+            tenant_id, kind, len(plan.rows), len(skipped), report, user.id, by)
         llm = llm_override or await tenant_llm(conn, tenant_id)
-    task = asyncio.create_task(_run_import(batch_id, tenant_id, user.id, plan, storage, llm, len(skipped)))
+    task = asyncio.create_task(_run_import(batch_id, tenant_id, user.id, plan, storage, llm, len(skipped), by))
     _running.add(task)
     task.add_done_callback(_running.discard)
     return {"batch_id": str(batch_id), "status": "processing", "total": len(plan.rows), "skipped": len(skipped)}
 
 
 async def _run_import(batch_id: UUID, tenant_id: UUID, user_id: UUID, plan: bi.ImportPlan, storage: Storage,
-                      llm: LLMProvider, skipped: int) -> None:
+                      llm: LLMProvider, skipped: int, uploaded_by: UUID | None = None) -> None:
     sem = asyncio.Semaphore(max(1, get_settings().bulk_import_concurrency))
     counts = {"created": 0, "updated": 0, "errors": 0}
 
@@ -110,7 +122,8 @@ async def _run_import(batch_id: UUID, tenant_id: UUID, user_id: UUID, plan: bi.I
                 async with user_tx(user_id) as conn:   # each candidate is its own transaction
                     if row.resume:
                         res = await candidate_from_resume(conn, storage, llm, tenant_id, row.resume.name,
-                                                          row.resume.data, source="import", known_fields=row.fields)
+                                                          row.resume.data, source="import", known_fields=row.fields,
+                                                          uploaded_by=uploaded_by)
                         cand, was_created = res["candidate"], res["created"]
                     else:
                         cand, was_created = await upsert_candidate(conn, tenant_id, row.fields, source="import")
@@ -148,8 +161,10 @@ async def _run_import(batch_id: UUID, tenant_id: UUID, user_id: UUID, plan: bi.I
 async def list_imports(tenant_id: UUID, user: CurrentUser = Depends(get_current_user)) -> list[dict]:
     async with user_tx(user.id) as conn:
         rows = await conn.fetch(
-            """select id, kind, status, total, created_count, updated_count, error_count, created_at, finished_at
-               from public.import_batches where tenant_id = $1 order by created_at desc limit 20""", tenant_id)
+            """select b.id, b.kind, b.status, b.total, b.created_count, b.updated_count, b.error_count, b.created_at,
+                      b.finished_at, tm.full_name as uploaded_by_name
+               from public.import_batches b left join public.team_members tm on tm.id = b.uploaded_by
+               where b.tenant_id = $1 order by b.created_at desc limit 20""", tenant_id)
     return [dict(r) for r in rows]
 
 

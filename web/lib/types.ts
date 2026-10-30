@@ -28,7 +28,7 @@ export type Candidate = {
   desired_rate: string | null; availability: string | null; status: string; source: string; created_at: string;
 };
 export type Stage = { id: string; pipeline_id: string; name: string; position: number; color: string; stage_type: string };
-export type Pipeline = { id: string; name: string; is_default: boolean; stages: Stage[] };
+export type Pipeline = { id: string; name: string; is_default: boolean; job_id?: string | null; stages: Stage[]; is_custom?: boolean };
 export type Application = {
   id: string; candidate_id: string; job_id: string; stage_id: string | null; first_name: string; last_name: string | null;
   email: string | null; current_title: string | null; job_title: string; stage_name: string | null;
@@ -39,7 +39,18 @@ export type Feedback = {
   recommendation: string | null; scorecard: { criterion: string; rating: number; comment?: string }[];
   strengths: string | null; concerns: string | null; notes: string | null; received_at: string;
 };
-export type Doc = { id: string; file_name: string; kind: string; is_primary: boolean; extracted_text: string | null; created_at: string };
+export type Doc = {
+  id: string; file_name: string; kind: string; is_primary: boolean; extracted_text: string | null; created_at: string;
+  mime_type: string | null; uploaded_by: string | null; uploaded_by_name: string | null;
+};
+export type Member = {
+  id: string; full_name: string; email: string | null; title: string | null; is_active: boolean; has_login: boolean;
+  role: string | null; is_me: boolean;
+};
+export type Note = {
+  id: string; kind: string; body: string | null; created_at: string; updated_at: string | null; author_name: string | null;
+  editor_name: string | null; can_edit: boolean; candidate_id: string | null;
+};
 export type SavedView = { id: string; entity: string; name: string; layout: string; config: Record<string, any>; user_id: string | null };
 export type Route = { provider: "anthropic" | "openrouter" | "openai_compatible"; model: string; base_url?: string | null; fallback?: boolean };
 export type JevConfig = { instructions?: string; categories?: Record<string, string>; use_corrections?: boolean; body_chars?: number; attachment_chars?: number };
