@@ -1,5 +1,7 @@
 """Settings → AI: what's configured, test a model, and Jev's control panel (status, test console, recent calls)."""
 import time
+
+import httpx
 from typing import Any, Literal
 from uuid import UUID
 
@@ -69,6 +71,42 @@ async def test_model(tenant_id: UUID, body: ModelTest, user: CurrentUser = Depen
         return {"ok": False, "error": explain(exc)[1], "seconds": round(time.monotonic() - started, 1)}
     return {"ok": bool(data.get("ok")), "reads_json": True, "sample": data,
             "seconds": round(time.monotonic() - started, 1)}
+
+
+_openrouter_cache: dict[str, Any] = {"at": 0.0, "models": []}
+
+
+@router.get("/ai/openrouter-models")
+async def openrouter_models(tenant_id: UUID, user: CurrentUser = Depends(get_current_user)) -> dict:
+    """OpenRouter's live catalogue with prices per million tokens (cached for an hour)."""
+    async with user_tx(user.id) as conn:
+        await _member(conn, tenant_id)
+    if time.monotonic() - _openrouter_cache["at"] > 3600 or not _openrouter_cache["models"]:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.get(get_settings().openrouter_models_url)
+                r.raise_for_status()
+                raw = r.json().get("data", [])
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"Couldn't load OpenRouter's model list: {exc}", "models": []}
+
+        def per_million(v: Any) -> float | None:
+            try:
+                return round(float(v) * 1_000_000, 3)
+            except (TypeError, ValueError):
+                return None
+
+        models = []
+        for m in raw:
+            price = m.get("pricing") or {}
+            inp, out = per_million(price.get("prompt")), per_million(price.get("completion"))
+            if inp is None or inp < 0:
+                continue   # skip routers/variable-priced entries
+            models.append({"id": m.get("id"), "name": m.get("name") or m.get("id"), "input_per_m": inp,
+                           "output_per_m": out, "context": m.get("context_length")})
+        models.sort(key=lambda m: (m["input_per_m"] or 0) + (m["output_per_m"] or 0) / 4)
+        _openrouter_cache.update(at=time.monotonic(), models=models)
+    return {"ok": True, "models": _openrouter_cache["models"]}
 
 
 @router.get("/jev/models")

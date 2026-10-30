@@ -187,3 +187,28 @@ def test_contact_details_edit_and_duplicate_email(api_client):
     assert r.json()["phone"] == "604-555-0199"
     assert c.patch(f"{A}/candidates/{b['id']}", json={"email": "zed@example.com"}).status_code == 409
     assert c.patch(f"{A}/candidates/{a['id']}", json={"phone": None}).json()["phone"] is None
+
+
+def test_openrouter_catalogue_sorted_by_price(api_client, monkeypatch):
+    from app.routers import ai_settings
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"data": [
+                {"id": "big/expensive", "name": "Expensive", "pricing": {"prompt": "0.000003", "completion": "0.000015"}, "context_length": 200000},
+                {"id": "qwen/qwen-2.5-72b-instruct", "name": "Qwen 72B", "pricing": {"prompt": "0.00000012", "completion": "0.00000039"}, "context_length": 32768},
+                {"id": "openrouter/auto", "name": "Auto", "pricing": {"prompt": "-1", "completion": "-1"}},
+                {"id": "free/model:free", "name": "Free one", "pricing": {"prompt": "0", "completion": "0"}, "context_length": 8192}]}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def get(self, url): return FakeResp()
+
+    monkeypatch.setattr(ai_settings.httpx, "AsyncClient", FakeClient)
+    ai_settings._openrouter_cache.update(at=0.0, models=[])
+    out = api_client.get(f"{A}/ai/openrouter-models").json()
+    assert [m["id"] for m in out["models"]] == ["free/model:free", "qwen/qwen-2.5-72b-instruct", "big/expensive"]
+    assert out["models"][1]["input_per_m"] == 0.12 and out["models"][1]["output_per_m"] == 0.39

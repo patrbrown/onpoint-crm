@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     openai_compatible_base_url: str = "http://localhost:11434/v1"  # e.g. Ollama
     openai_compatible_api_key: str = "not-needed"
     openrouter_api_key: str = ""
+    openrouter_models_url: str = "https://openrouter.ai/api/v1/models"
 
     # TypeSafe Jev (email triage). Keys live here, never in the database.
     typesafe_api_key: str = ""

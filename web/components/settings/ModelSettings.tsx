@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { api, t } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { AiStatus, Route, Settings } from "@/lib/types";
-import { useToast } from "../ui";
+import { Drawer, useToast } from "../ui";
+import { OpenRouterPicker } from "./OpenRouterPicker";
 
 const PROVIDERS: [Route["provider"], string][] = [
   ["anthropic", "Claude"], ["openrouter", "OpenRouter"], ["openai_compatible", "Local or private model"],
@@ -33,6 +34,7 @@ export function ModelSettings({ settings, status, onSaved }: { settings: Setting
   const [d, setD] = useState<Record<string, Draft>>(initial);
   const [tests, setTests] = useState<Record<string, TestResult>>({});
   const [busy, setBusy] = useState(false);
+  const [browsing, setBrowsing] = useState<string | null>(null);
   useEffect(() => setD(initial()), [settings]);   // eslint-disable-line react-hooks/exhaustive-deps
   const ro = !status.can_edit;
   const set = (k: string, patch: Partial<Draft>) => setD({ ...d, [k]: { ...d[k], ...patch } });
@@ -95,8 +97,12 @@ export function ModelSettings({ settings, status, onSaved }: { settings: Setting
                     {k !== "default" && <option value="">Same as default</option>}
                     {PROVIDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select></label>
-                {r.provider && <label className="field"><span className="field-label">Model</span>
-                  <input disabled={ro} list={`models-${r.provider}`} value={r.model} onChange={(e) => set(k, { model: e.target.value })} /></label>}
+                {r.provider && <div className="field">
+                  <span className="field-label"><label htmlFor={`model-${k}`}>Model</label>
+                    {r.provider === "openrouter" && !ro && <button type="button" className="link-btn" style={{ marginLeft: 8, fontWeight: 400 }}
+                      onClick={() => setBrowsing(k)}>Browse models and prices</button>}</span>
+                  <input id={`model-${k}`} disabled={ro} list={`models-${r.provider}`} value={r.model}
+                         onChange={(e) => set(k, { model: e.target.value })} placeholder="Type or pick a model" /></div>}
                 {r.provider === "openai_compatible" && <label className="field wide"><span className="field-label">Model server address</span>
                   <input disabled={ro} value={r.base_url} placeholder={status.local_base_url} onChange={(e) => set(k, { base_url: e.target.value })} /></label>}
                 {r.provider && r.provider !== "anthropic" && (
@@ -120,6 +126,10 @@ export function ModelSettings({ settings, status, onSaved }: { settings: Setting
         <datalist key={p} id={`models-${p}`}>{list.map((m) => <option key={m} value={m} />)}</datalist>
       ))}
       {!ro && <div className="form-foot"><button className="btn primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save AI models"}</button></div>}
+      <Drawer title={`OpenRouter models${browsing ? ` for “${status.tasks[browsing]}”` : ""}`} open={!!browsing} onClose={() => setBrowsing(null)}>
+        {browsing && <OpenRouterPicker current={d[browsing].model} onPick={(id) => { set(browsing, { model: id }); setBrowsing(null);
+          toast("Model chosen. Click Save AI models to keep it."); }} />}
+      </Drawer>
     </div>
   );
 }

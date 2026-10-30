@@ -272,3 +272,4 @@ code { font-size: 12.5px; background: var(--line-2); padding: 1px 4px; border-ra
 .warn-inline { color: #8a5d0f; }
 details summary { cursor: pointer; list-style: revert; }
 @media (max-width: 900px) { .route, .route-fields, .cat-grid { grid-template-columns: 1fr; } .route-test { grid-column: 1; } }
+tr.picked td { background: var(--teal-wash); }
