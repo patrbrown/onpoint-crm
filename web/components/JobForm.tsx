@@ -125,7 +125,7 @@ export function JobForm({ job, onSaved, onCancel }: { job?: Job; onSaved: (j: Jo
           <Select value={f.priority} onChange={set("priority")}
                   options={[["low", "Low"], ["normal", "Normal"], ["high", "High"], ["urgent", "Urgent"]]} />
         </Field>
-        <Field label="Pipeline">
+        <Field label="Pipeline" hint={job ? "To add or remove stages for this job only, use Edit stages above the job’s board" : undefined}>
           {customStages ? <p className="muted" style={{ margin: "6px 0" }}>Customized for this job (Edit stages on the job page)</p>
             : <Select value={f.pipeline_id} onChange={set("pipeline_id")} placeholder="Default pipeline"
                       options={(pipelines.data ?? []).map((p) => [p.id, p.name])} />}

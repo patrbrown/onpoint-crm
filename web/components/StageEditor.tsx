@@ -11,8 +11,10 @@ const TYPES: [string, string][] = [["active", "In progress"], ["placed", "Counts
 
 /** Add, rename, recolour, reorder and remove the stages of one pipeline. `counts` (candidates per stage) is optional;
  *  removing a stage that has candidates asks where to move them. */
-export function StageEditor({ pipeline, counts, onChanged }: {
+export function StageEditor({ pipeline, counts, onChanged, ensureOwn }: {
   pipeline: Pipeline; counts?: Record<string, number>; onChanged: () => void;
+  /** Set for a job still on shared stages: called before the first change to give the job its own copy. */
+  ensureOwn?: () => Promise<Pipeline>;
 }) {
   const { tenant } = useSession();
   const toast = useToast();
@@ -22,8 +24,22 @@ export function StageEditor({ pipeline, counts, onChanged }: {
   const [moveTo, setMoveTo] = useState("");
   useEffect(() => { setStages([...pipeline.stages].sort((a, b) => a.position - b.position)); }, [pipeline]);
 
+  /** Where a change should go. For a job on shared stages, this first makes the job's own copy and translates
+   *  stage ids to the copied stages (the copy keeps the same positions). */
+  async function target(): Promise<{ pid: string; id: (stageId: string) => string }> {
+    if (!ensureOwn) return { pid: pipeline.id, id: (x) => x };
+    const own = await ensureOwn();
+    const pos = new Map(pipeline.stages.map((st) => [st.id, st.position]));
+    const byPos = new Map(own.stages.map((st) => [st.position, st.id]));
+    return { pid: own.id, id: (x) => byPos.get(pos.get(x) ?? -1) ?? x };
+  }
+
   async function saveStage(s: Stage, patch: Partial<Stage>) {
-    try { await api(t(tenant.id, `/stages/${s.id}`), { method: "PATCH", json: patch }); onChanged(); }
+    try {
+      const to = await target();
+      await api(t(tenant.id, `/stages/${to.id(s.id)}`), { method: "PATCH", json: patch });
+      onChanged();
+    }
     catch (e: any) { toast(e.message, "error"); onChanged(); }
   }
   async function move(i: number, d: -1 | 1) {
@@ -33,7 +49,8 @@ export function StageEditor({ pipeline, counts, onChanged }: {
     [next[i], next[j]] = [next[j], next[i]];
     setStages(next);
     try {
-      await api(t(tenant.id, `/pipelines/${pipeline.id}/stage-order`), { method: "PUT", json: { stage_ids: next.map((s) => s.id) } });
+      const to = await target();
+      await api(t(tenant.id, `/pipelines/${to.pid}/stage-order`), { method: "PUT", json: { stage_ids: next.map((s) => to.id(s.id)) } });
       onChanged();
     } catch (e: any) { toast(e.message, "error"); onChanged(); }
   }
@@ -44,18 +61,21 @@ export function StageEditor({ pipeline, counts, onChanged }: {
     // New stages go after the last in-progress stage, before Placed / Rejected / Withdrawn.
     const lastActive = stages.reduce((n, s, i) => (s.stage_type === "active" ? i : n), stages.length - 1);
     try {
+      const to = await target();
       const created = await api<Stage>(t(tenant.id, "/stages"),
-        { method: "POST", json: { pipeline_id: pipeline.id, name, position: stages.length + 1 } });
-      const order = [...stages.slice(0, lastActive + 1), created, ...stages.slice(lastActive + 1)];
-      await api(t(tenant.id, `/pipelines/${pipeline.id}/stage-order`), { method: "PUT", json: { stage_ids: order.map((s) => s.id) } });
+        { method: "POST", json: { pipeline_id: to.pid, name, position: stages.length + 1 } });
+      const order = [...stages.slice(0, lastActive + 1).map((s) => to.id(s.id)), created.id,
+                     ...stages.slice(lastActive + 1).map((s) => to.id(s.id))];
+      await api(t(tenant.id, `/pipelines/${to.pid}/stage-order`), { method: "PUT", json: { stage_ids: order } });
       setAdding("");
       onChanged();
     } catch (err: any) { toast(err.message, "error"); }
   }
-  async function remove(s: Stage, target?: string) {
+  async function remove(s: Stage, moveTarget?: string) {
     try {
-      const q = target ? `?move_to=${target}` : "";
-      await api(t(tenant.id, `/stages/${s.id}${q}`), { method: "DELETE" });
+      const to = await target();
+      const q = moveTarget ? `?move_to=${to.id(moveTarget)}` : "";
+      await api(t(tenant.id, `/stages/${to.id(s.id)}${q}`), { method: "DELETE" });
       setRemoving(null); setMoveTo("");
       toast(`Removed “${s.name}”`);
       onChanged();

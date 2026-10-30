@@ -77,7 +77,7 @@ export default function JobPage() {
       <div className="panel" style={{ marginBottom: 16, padding: 12 }}>
         <div className="board-head">
           <span className="muted">{pipeline.data ? (pipeline.data.is_custom ? "Stages customized for this job" : `Stages: ${pipeline.data.name}`) : ""}</span>
-          <button className="link-btn" onClick={() => setStagesOpen(true)}>Edit stages</button>
+          <button className="btn small" onClick={() => setStagesOpen(true)}>Edit stages</button>
         </div>
         {pipeline.data && apps.data ? (
           <PipelineBoard stages={pipeline.data.stages} apps={apps.data} onMoved={(a) => apps.setData(a)} />
@@ -179,34 +179,25 @@ function JobStages({ jobId, pipeline, counts, onChanged }: {
   const { tenant } = useSession();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  async function customize() {
-    setBusy(true);
-    try { await api(t(tenant.id, `/jobs/${jobId}/pipeline/customize`), { method: "POST" }); onChanged(); }
-    catch (e: any) { toast(e.message, "error"); } finally { setBusy(false); }
-  }
+  // The first change gives this job its own copy of the stages; the shared ones in Settings are never touched.
+  const ensureOwn = () => api<Pipeline>(t(tenant.id, `/jobs/${jobId}/pipeline/customize`), { method: "POST" });
   async function reset() {
     if (!confirm("Go back to the workspace’s default stages? Candidates move to the stage with the same name, or the first stage.")) return;
     setBusy(true);
     try { await api(t(tenant.id, `/jobs/${jobId}/pipeline/reset`), { method: "POST", json: {} }); onChanged(); toast("Using the default stages again"); }
     catch (e: any) { toast(e.message, "error"); } finally { setBusy(false); }
   }
-  if (!pipeline.is_custom) return (
-    <>
-      <p>This job uses the shared <strong>{pipeline.name}</strong> stages from Settings, so changing them changes every job that uses them.</p>
-      <p className="muted">To add or remove stages for this job only, give it its own copy. Candidates stay where they are.</p>
-      <div className="form-foot" style={{ justifyContent: "flex-start" }}>
-        <button className="btn primary" onClick={customize} disabled={busy}>{busy ? "Copying…" : "Customize stages for this job"}</button>
-        <Link href="/settings#pipelines" className="btn">Edit the shared stages</Link>
-      </div>
-    </>
-  );
   return (
     <>
-      <p className="muted">These stages apply to this job only. The number beside each stage is how many candidates are in it.</p>
-      <StageEditor pipeline={pipeline} counts={counts} onChanged={onChanged} />
-      <div className="form-foot" style={{ justifyContent: "flex-start" }}>
-        <button className="link-btn" onClick={reset} disabled={busy}>Go back to the default stages</button>
-      </div>
+      <p className="muted">Add, remove, rename or reorder stages for this job only. Other jobs and the defaults in Settings
+        aren’t affected. The number beside each stage is how many candidates are in it.</p>
+      <StageEditor pipeline={pipeline} counts={counts} onChanged={onChanged}
+                   ensureOwn={pipeline.is_custom ? undefined : ensureOwn} />
+      {pipeline.is_custom && (
+        <div className="form-foot" style={{ justifyContent: "flex-start" }}>
+          <button className="link-btn" onClick={reset} disabled={busy}>Go back to the default stages</button>
+        </div>
+      )}
     </>
   );
 }
