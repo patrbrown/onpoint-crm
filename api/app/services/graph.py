@@ -21,6 +21,7 @@ import httpx
 import msal
 
 from ..config import get_settings
+from .clean import nul_free
 
 SCOPES = ["Mail.Read", "User.Read"]
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -67,6 +68,7 @@ def _html_to_text(html: str) -> str:
 
 
 def parse_message(m: dict[str, Any]) -> Message:
+    m = nul_free(m)
     body = m.get("body") or {}
     content = body.get("content") or m.get("bodyPreview") or ""
     text = _html_to_text(content) if body.get("contentType", "").lower() == "html" else content

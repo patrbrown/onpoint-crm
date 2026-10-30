@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from ..services.clean import nul_free
+
 
 @dataclass
 class LLMResult:
@@ -29,7 +31,7 @@ class LLMProvider(ABC):
         """Ask for JSON and parse it robustly (local models often wrap JSON in prose or code fences)."""
         system = system + "\n\nRespond with a single valid JSON object only. No prose, no code fences."
         result = await self.complete(system, user, max_tokens)
-        return parse_json_object(result.text), result
+        return nul_free(parse_json_object(result.text)), result
 
 
 def parse_json_object(text: str) -> dict[str, Any]:

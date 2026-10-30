@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, is_dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
 from typing import Any, Protocol
@@ -19,6 +19,7 @@ from ..llm import LLMProvider
 import httpx
 
 from ..services import jd_markdown, jev
+from ..services.clean import nul_free
 from ..services.storage import Storage
 from ..services.text_extract import SUPPORTED, extract_text
 from . import matching
@@ -143,17 +144,9 @@ async def triage_email(conn, llm: LLMProvider, tenant_id: UUID, msg, readable: l
     return kind, _clamp(cls.get("confidence")), details
 
 
-async def _store_message(conn, storage: Storage, tenant_id: UUID, account_id: UUID, msg) -> tuple[UUID, list[dict]] | None:
-    email_id = await conn.fetchval(
-        """insert into public.email_messages (tenant_id, mail_account_id, provider_message_id, internet_message_id,
-           conversation_id, from_address, from_name, to_addresses, subject, received_at, body_text, has_attachments)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-           on conflict (mail_account_id, provider_message_id) do nothing returning id""",
-        tenant_id, account_id, msg.id, msg.internet_message_id, msg.conversation_id, msg.from_address, msg.from_name,
-        msg.to, msg.subject, msg.received_at, msg.body_text, msg.has_attachments)
-    if email_id is None:
-        return None   # already processed
-    atts = []
+def _read_attachments(msg) -> list[dict]:
+    """Read attachment text locally (free, no AI). Jev needs a short excerpt to tell a resume from a receipt."""
+    out = []
     for a in msg.attachments:
         text = None
         if PurePath(a.name).suffix.lower() in SUPPORTED:
@@ -161,25 +154,54 @@ async def _store_message(conn, storage: Storage, tenant_id: UUID, account_id: UU
                 text = extract_text(a.name, a.data)
             except Exception:   # noqa: BLE001 — a broken attachment shouldn't stop the email
                 text = None
-        md = None
-        if PurePath(a.name).suffix.lower() in jd_markdown.CONVERTIBLE:
-            try:
-                md = jd_markdown.to_markdown(a.name, a.data)
-            except Exception:  # noqa: BLE001
-                md = None
-        safe = re.sub(r"[^\w.\-]+", "_", a.name)
-        path = f"{tenant_id}/email/{email_id}/{safe}"
-        await storage.put(path, a.data, a.content_type)
-        att_id = await conn.fetchval(
+        out.append({"id": None, "name": a.name, "text": text, "markdown": None, "_file": a})
+    return out
+
+
+async def _save_attachments(conn, storage: Storage, tenant_id: UUID, email_id: UUID, atts: list[dict],
+                            keep_files: bool) -> list[dict]:
+    """Recruiting emails: upload the files and convert JDs to Markdown. Everything else: keep only the name and
+    text (so a wrongly-skipped email can still be corrected later), no file upload."""
+    for att in atts:
+        a = att.pop("_file")
+        path, md = None, None
+        if keep_files:
+            if PurePath(a.name).suffix.lower() in jd_markdown.CONVERTIBLE:
+                try:
+                    md = jd_markdown.to_markdown(a.name, a.data)
+                except Exception:  # noqa: BLE001
+                    md = None
+            safe = re.sub(r"[^\w.\-]+", "_", a.name)
+            path = f"{tenant_id}/email/{email_id}/{safe}"
+            await storage.put(path, a.data, a.content_type)
+        att["id"] = await conn.fetchval(
             """insert into public.email_attachments (tenant_id, email_id, file_name, mime_type, size_bytes, storage_path,
                extracted_text, markdown) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id""",
-            tenant_id, email_id, a.name, a.content_type, len(a.data), path, text, md)
-        atts.append({"id": att_id, "name": a.name, "text": text, "markdown": md})
-    return email_id, atts
+            tenant_id, email_id, a.name, a.content_type, len(a.data), path, att["text"], md)
+        att["markdown"] = md
+    return atts
+
+
+async def _insert_email(conn, tenant_id: UUID, account_id: UUID, msg) -> UUID | None:
+    return await conn.fetchval(
+        """insert into public.email_messages (tenant_id, mail_account_id, provider_message_id, internet_message_id,
+           conversation_id, from_address, from_name, to_addresses, subject, received_at, body_text, has_attachments)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           on conflict (mail_account_id, provider_message_id) do nothing returning id""",
+        tenant_id, account_id, msg.id, msg.internet_message_id, msg.conversation_id, msg.from_address, msg.from_name,
+        msg.to, msg.subject, msg.received_at, msg.body_text, msg.has_attachments)
+
+
+def _clean_message(msg):
+    """Strip characters the database can't store from every text field of the email."""
+    changes = {f: nul_free(getattr(msg, f)) for f in ("subject", "from_address", "from_name", "body_text", "to",
+                                                      "internet_message_id", "conversation_id") if hasattr(msg, f)}
+    return replace(msg, **changes) if is_dataclass(msg) else msg
 
 
 async def _queue(conn, tenant_id: UUID, email_id: UUID, kind: str, extracted: dict, confidence: float,
                  matches: list[dict], llm: LLMProvider) -> asyncpg.Record:
+    extracted, matches = nul_free(extracted), nul_free(matches)
     used = getattr(llm, "last_used", llm)   # with fallback on, record the model that actually answered
     return await conn.fetchrow(
         """insert into public.inbox_items (tenant_id, email_id, item_type, confidence, extracted, suggested_matches,
@@ -215,20 +237,60 @@ def _auto_links(kind: str, matches: list[dict]) -> dict | None:
 
 async def process_message(conn, storage: Storage, llm: LLMProvider, tenant_id: UUID, account_id: UUID, msg,
                           settings: asyncpg.Record, result: ScanResult, triage_llm: LLMProvider | None = None) -> None:
-    stored = await _store_message(conn, storage, tenant_id, account_id, msg)
-    if stored is None:
-        return
-    email_id, atts = stored
+    msg = _clean_message(msg)
+    email_id = await _insert_email(conn, tenant_id, account_id, msg)
+    if email_id is None:
+        return   # already processed
     result.new += 1
+    atts = _read_attachments(msg)
     readable = [(a["name"], a["text"]) for a in atts if a["text"]]
 
+    # 1. Sort the email first (Jev or the sorting model). Nothing is uploaded or sent for extraction yet.
     kind, conf, triage = await triage_email(conn, triage_llm or llm, tenant_id, msg, readable, settings)
     await conn.execute("update public.email_messages set classification = $2, confidence = $3, triage = $4, "
                        "processed_at = now() where id = $1", email_id, kind, round(conf, 2), triage)
-    if kind not in ACTIONABLE:
+    # 2. Only recruiting emails get their files stored and the (more expensive) extraction.
+    actionable = kind in ACTIONABLE
+    atts = await _save_attachments(conn, storage, tenant_id, email_id, atts, keep_files=actionable)
+    if not actionable:
         result.ignored += 1
         return
     await extract_and_queue(conn, llm, tenant_id, email_id, kind, conf, msg, atts, settings, result)
+
+
+async def fetch_missing_files(conn, storage: Storage, tenant_id: UUID, email_id: UUID, mailbox_factory=None) -> int:
+    """An email the assistant skipped turned out to matter: download its attachments from Outlook now
+    (they weren't stored when it was skipped). Returns how many files were added."""
+    rows = await conn.fetch("""select a.id, a.file_name, a.mime_type, e.provider_message_id, e.mail_account_id
+                               from public.email_attachments a join public.email_messages e on e.id = a.email_id
+                               where a.tenant_id = $1 and a.email_id = $2 and a.storage_path is null""", tenant_id, email_id)
+    if not rows:
+        return 0
+    from ..services.graph import GraphMailbox
+
+    mailbox = (mailbox_factory or GraphMailbox)(str(rows[0]["mail_account_id"]))
+    import httpx as _httpx
+
+    async with _httpx.AsyncClient(timeout=60) as client:
+        files = {f.name: f for f in await mailbox._attachments(client, rows[0]["provider_message_id"])}
+    added = 0
+    for r in rows:
+        f = files.get(r["file_name"])
+        if not f:
+            continue
+        safe = re.sub(r"[^\w.\-]+", "_", f.name)
+        path = f"{tenant_id}/email/{email_id}/{safe}"
+        await storage.put(path, f.data, f.content_type)
+        md = None
+        if PurePath(f.name).suffix.lower() in jd_markdown.CONVERTIBLE:
+            try:
+                md = jd_markdown.to_markdown(f.name, f.data)
+            except Exception:  # noqa: BLE001
+                md = None
+        await conn.execute("update public.email_attachments set storage_path = $2, markdown = coalesce(markdown, $3) "
+                           "where id = $1", r["id"], path, md)
+        added += 1
+    return added
 
 
 async def extract_and_queue(conn, llm: LLMProvider, tenant_id: UUID, email_id: UUID, kind: str, conf: float, msg,

@@ -9,7 +9,7 @@ from fastapi.responses import Response
 
 from ..agent import worker
 from ..agent.commit import commit_item
-from ..agent.email_agent import ScanResult, extract_and_queue, load_email
+from ..agent.email_agent import ScanResult, extract_and_queue, fetch_missing_files, load_email
 from ..auth import CurrentUser, get_current_user
 from ..db import service_tx, user_tx
 from ..llm import LLMProvider
@@ -20,6 +20,21 @@ from ..services.storage import Storage, get_storage
 
 router = APIRouter(prefix="/tenants/{tenant_id}", tags=["inbox"])
 log = logging.getLogger("inbox")
+
+
+async def _fetch_files(conn, tenant_id: UUID, email_id: UUID) -> None:
+    """Skipped emails didn't keep their files; get them from Outlook now. Best effort: if Outlook can't be
+    reached, the email is still re-read from the text that was kept."""
+    try:
+        async with conn.transaction():
+            await fetch_missing_files(conn, get_storage(), tenant_id, email_id, mailbox_factory=mailbox_factory())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("couldn't fetch attachments for email %s: %s", email_id, exc)
+
+
+def mailbox_factory():
+    """Replaced in tests."""
+    return graph.GraphMailbox
 
 
 def llm_dep() -> LLMProvider | None:
@@ -187,6 +202,7 @@ async def reprocess_email(tenant_id: UUID, email_id: UUID, body: Reject, user: C
                created_by) values ($1,'classification',$2,'incorrect',$3,$4,$5)""",
             tenant_id, email_id, {"classification": body.correct_type, "was": e["classification"]}, body.comment, user.id)
         await conn.execute("update public.email_messages set classification = $2 where id = $1", email_id, body.correct_type)
+        await _fetch_files(conn, tenant_id, email_id)
         msg, atts = await load_email(conn, tenant_id, email_id)
         llm = llm_override or await llm_for_task(conn, tenant_id, "email_extraction")
         new_items = await extract_and_queue(conn, llm, tenant_id, email_id, body.correct_type, 1.0, msg, atts, None,

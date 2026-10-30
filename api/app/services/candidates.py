@@ -10,6 +10,7 @@ import asyncpg
 
 from ..agent.prompts import RESUME_EXTRACT_SYSTEM
 from ..llm import LLMProvider
+from .clean import nul_free
 from .storage import Storage
 from .text_extract import extract_text
 
@@ -23,6 +24,7 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
 def clean_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    raw = nul_free(raw)
     out: dict[str, Any] = {}
     for k, v in raw.items():
         if k not in CANDIDATE_FIELDS or v in (None, "", []):

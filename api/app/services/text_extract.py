@@ -4,10 +4,16 @@ from __future__ import annotations
 import io
 from pathlib import PurePath
 
+from .clean import nul_free
+
 SUPPORTED = {".pdf", ".docx", ".txt", ".md", ".rtf"}
 
 
 def extract_text(file_name: str, data: bytes) -> str:
+    return nul_free(_extract(file_name, data))
+
+
+def _extract(file_name: str, data: bytes) -> str:
     ext = PurePath(file_name).suffix.lower()
     if ext == ".pdf":
         from pypdf import PdfReader

@@ -223,3 +223,67 @@ def test_failing_email_is_retried_then_skipped(api_client, fresh_mail, tmp_path)
     assert r3.errors == 1 and r3.new == 1
     ignored = api_client.get(f"{A}/inbox/ignored").json()
     assert any(e["subject"] == "Broken" and e["error"] for e in ignored)
+
+
+def test_null_characters_dont_block_the_inbox(api_client, fresh_mail, tmp_path):
+    """Some PDFs (e.g. receipts) and emails contain \\x00, which Postgres refuses to store."""
+    att = Attachment("Receipt-2751-9811.txt", "text/plain", b"Receipt\x00 total $10\x00")
+    m = msg(90, "Your receipt from OpenRouter\x00", "Thanks\x00 for your purchase", atts=[att], minutes_ago=1)
+    r, _ = run_scan(fresh_mail, tmp_path, [m], [cls("other")])
+    assert (r.errors, r.new, r.ignored) == (0, 1, 1)
+    ignored = api_client.get(f"{A}/inbox/ignored").json()
+    assert ignored[0]["subject"] == "Your receipt from OpenRouter"
+
+    # and if the AI echoes a null back in its extraction, it's stripped too
+    att2 = Attachment("cv.txt", "text/plain", b"Nul\x00 Person")
+    r2, _ = run_scan(fresh_mail, tmp_path, [msg(91, "cv", "attached", atts=[att2], minutes_ago=0)],
+                     [cls("resume"), json.dumps({"first_name": "Nul\u0000", "email": "nul@example.com"})])
+    assert r2.errors == 0 and r2.queued == 1
+
+
+def test_files_are_only_stored_for_recruiting_email(api_client, fresh_mail, tmp_path):
+    receipt = Attachment("receipt.txt", "text/plain", b"Receipt total $10")
+    resume_file = Attachment("Mia_Cho_Resume.txt", "text/plain", b"Mia Cho mia@example.com Epic Cupid")
+    run_scan(fresh_mail, tmp_path, [
+        msg(95, "Your receipt", "thanks", sender=("billing@vendor.example", "Vendor"), atts=[receipt], minutes_ago=3),
+        msg(96, "My resume", "attached", sender=("mia@example.com", "Mia Cho"), atts=[resume_file], minutes_ago=2),
+    ], [cls("other"), cls("resume"), json.dumps({"first_name": "Mia", "last_name": "Cho", "email": "mia@example.com"})])
+
+    async def rows():
+        conn = await _conn(fresh_mail)
+        r = await conn.fetch("select file_name, storage_path, extracted_text from public.email_attachments order by file_name")
+        await conn.close()
+        return {x["file_name"]: x for x in r}
+    r = asyncio.run(rows())
+    assert r["receipt.txt"]["storage_path"] is None and "Receipt" in r["receipt.txt"]["extracted_text"]
+    assert r["Mia_Cho_Resume.txt"]["storage_path"]
+    assert not list((tmp_path / "storage").rglob("receipt.txt"))
+
+
+def test_correcting_a_skipped_email_fetches_its_file_from_outlook(api_client, fresh_mail, tmp_path):
+    from app.routers import inbox
+
+    cv = Attachment("Leo_Park_CV.txt", "text/plain", b"Leo Park leo@example.com")
+    run_scan(fresh_mail, tmp_path, [msg(97, "fwd", "fyi", atts=[cv], minutes_ago=1)], [cls("other")])
+
+    class FakeGraph:
+        def __init__(self, key): pass
+        async def _attachments(self, client, message_id):
+            assert message_id == "m97"
+            return [cv]
+
+    c = api_client
+    c.app.dependency_overrides[inbox.llm_dep] = lambda: FakeProvider(
+        [json.dumps({"first_name": "Leo", "last_name": "Park", "email": "leo@example.com"})])
+    original = inbox.mailbox_factory
+    inbox.mailbox_factory = lambda: FakeGraph
+    try:
+        email = c.get(f"{A}/inbox/ignored").json()[0]
+        out = c.post(f"{A}/inbox/emails/{email['id']}/reprocess", json={"reason": "wrong_type", "correct_type": "resume"}).json()
+    finally:
+        inbox.mailbox_factory = original
+    item = c.get(f"{A}/inbox/{out['new_items'][0]}").json()
+    assert item["item"]["extracted"]["first_name"] == "Leo"
+    res = c.post(f"{A}/inbox/{item['item']['id']}/approve", json={"final": item["item"]["extracted"]}).json()
+    docs = c.get(f"{A}/candidates/{res['entity_id']}/documents").json()
+    assert docs and docs[0]["file_name"] == "Leo_Park_CV.txt"

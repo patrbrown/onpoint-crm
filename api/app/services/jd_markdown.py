@@ -8,6 +8,8 @@ import io
 import re
 from pathlib import PurePath
 
+from .clean import nul_free
+
 BULLET = re.compile(r"^\s*([•●▪◦‣∙·○■□➢➤►\-–—*]|\d+[.)])\s+")
 JD_NAME = re.compile(r"(\bjd\b|job|description|posting|position|role|req|requisition|vacancy|opportunity)", re.I)
 NOT_JD_NAME = re.compile(r"(resume|résumé|\bcv\b|logo|signature|image\d*|invoice|contract|nda|agreement|msa)", re.I)
@@ -82,6 +84,10 @@ def tidy(md: str) -> str:
 
 
 def to_markdown(file_name: str, data: bytes) -> str:
+    return nul_free(_to_markdown(file_name, data))
+
+
+def _to_markdown(file_name: str, data: bytes) -> str:
     ext = PurePath(file_name).suffix.lower()
     if ext == ".docx":
         return tidy(_docx_to_md(data))
