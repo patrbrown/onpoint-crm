@@ -57,6 +57,7 @@ def api_client(database, tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.setenv("DEV_USER_ID", USER_A)
     monkeypatch.setenv("EMAIL_WORKER_ENABLED", "false")
+    monkeypatch.setenv("BULK_IMPORT_CONCURRENCY", "1")   # deterministic order for the fake AI
     from app.config import get_settings
 
     get_settings.cache_clear()

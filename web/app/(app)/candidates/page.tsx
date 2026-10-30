@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BulkImport } from "@/components/BulkImport";
 import { CandidateForm } from "@/components/CandidateForm";
+import { ImportHistory, RunningImports } from "@/components/ImportHistory";
 import { ResumeUpload } from "@/components/ResumeUpload";
 import { SavedViews } from "@/components/SavedViews";
 import { Drawer, Empty, Select, Status, Tags } from "@/components/ui";
@@ -20,7 +21,9 @@ export default function CandidatesPage() {
   const router = useRouter();
   const cands = useData<Candidate[]>(t(tenant.id, "/candidates?limit=1000"));
   const [f, setF] = useState<Filters>({ q: "", status: "", source: "" });
-  const [panel, setPanel] = useState<"none" | "upload" | "bulk" | "manual">("none");
+  const [panel, setPanel] = useState<"none" | "upload" | "bulk" | "manual" | "imports">("none");
+  const [openImport, setOpenImport] = useState<string | null>(null);
+  const [nudge, setNudge] = useState(0);   // re-check running imports right after one starts
 
   const rows = (cands.data ?? []).filter((c) => {
     const hay = `${fullName(c)} ${c.email ?? ""} ${c.phone ?? ""} ${c.current_title ?? ""} ${c.current_company ?? ""} ${c.location ?? ""} ${c.skills.join(" ")} ${c.systems.join(" ")} ${c.certifications.join(" ")}`.toLowerCase();
@@ -33,11 +36,13 @@ export default function CandidatesPage() {
       <div className="page-head">
         <div><h1>Candidates</h1><p>{rows.length} of {cands.data?.length ?? 0} shown</p></div>
         <div className="actions">
+          <button className="link-btn" onClick={() => setPanel("imports")}>Import history</button>
           <button className="btn" onClick={() => setPanel("manual")}>Add by hand</button>
           <button className="btn" onClick={() => setPanel("bulk")}>Bulk import</button>
           <button className="btn primary" onClick={() => setPanel("upload")}>Upload resumes</button>
         </div>
       </div>
+      <RunningImports nudge={nudge} onChange={cands.reload} onOpen={(id) => { setOpenImport(id); setPanel("imports"); }} />
       <div className="toolbar">
         <input className="search" type="search" placeholder="Search name, skill, system, location" value={f.q}
                onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search candidates" />
@@ -84,7 +89,10 @@ export default function CandidatesPage() {
         <ResumeUpload onDone={() => cands.reload()} />
       </Drawer>
       <Drawer title="Bulk import" open={panel === "bulk"} onClose={() => setPanel("none")}>
-        <BulkImport onDone={() => cands.reload()} />
+        <BulkImport onDone={() => { cands.reload(); setNudge((n) => n + 1); }} />
+      </Drawer>
+      <Drawer title="Import history" open={panel === "imports"} onClose={() => { setPanel("none"); setOpenImport(null); }}>
+        <ImportHistory openId={openImport} onOpenId={setOpenImport} />
       </Drawer>
       <Drawer title="Add a candidate" open={panel === "manual"} onClose={() => setPanel("none")}>
         <CandidateForm onCancel={() => setPanel("none")} onSaved={(c) => router.push(`/candidates/${c.id}`)} />

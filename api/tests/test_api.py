@@ -125,9 +125,13 @@ def test_bulk_import_zip_and_csv(api_client):
                   "logo.png": b"x"})
     csv_data = b"First Name,Last Name,Email,Phone\nLee,Wong,lee@example.com,604-555-0100\nNo,Resume,nores@example.com,\n"
     r = c.post(f"{A}/candidates/bulk-import", files={"zip_file": ("batch.zip", z), "csv_file": ("c.csv", csv_data)})
-    assert r.status_code == 201, r.text
-    out = r.json()
-    assert (out["created"], out["skipped"], out["errors"]) == (3, 1, 0)
+    assert r.status_code == 202, r.text
+    started = r.json()
+    assert started["status"] == "processing" and started["total"] == 3 and started["skipped"] == 1
+    out = wait_for_import(c, started["batch_id"])
+    assert out["status"] == "completed_with_errors"   # the skipped logo.png counts as an issue
+    assert (out["created_count"], out["updated_count"], out["error_count"]) == (3, 0, 1)
+    assert any(i["id"] == started["batch_id"] for i in c.get(f"{A}/candidates/imports").json())
     by_item = {x.get("item"): x for x in out["report"]}
     lee = by_item["Lee_Wong_Resume_2026.txt"]
     assert lee["match"] == "fuzzy" and lee["status"] == "created"
@@ -137,6 +141,52 @@ def test_bulk_import_zip_and_csv(api_client):
     cands = {x["email"]: x for x in c.get(f"{A}/candidates").json()}
     assert cands["lee@example.com"]["first_name"] == "Lee" and cands["lee@example.com"]["phone"] == "604-555-0100"
     assert "lee.parsed@example.com" not in cands
+
+
+def wait_for_import(c, batch_id, timeout=20):
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        b = c.get(f"{A}/candidates/imports/{batch_id}").json()
+        if b["status"] != "processing":
+            return b
+        time.sleep(0.1)
+    raise AssertionError("import didn't finish")
+
+
+def test_bulk_import_progress_is_saved_row_by_row(api_client):
+    """A failing resume doesn't lose the ones already done, and progress is visible while it runs."""
+    c = api_client
+    fake = FakeProvider([parsed("Una", "One", "una@example.com"), "not json", parsed("Tre", "Three", "tre@example.com")])
+    c.app.dependency_overrides[uploads.llm_dep] = lambda: fake
+    z = make_zip({"a_Una.txt": b"Una", "b_Bad.txt": b"Bad", "c_Tre.txt": b"Tre"})
+    started = c.post(f"{A}/candidates/bulk-import", files={"zip_file": ("z.zip", z)}).json()
+    out = wait_for_import(c, started["batch_id"])
+    assert (out["created_count"], out["error_count"], out["status"]) == (2, 1, "completed_with_errors")
+    errs = [r for r in out["report"] if r["status"] == "error"]
+    assert errs and "couldn't be read" in errs[0]["error"]
+    assert c.post(f"{A}/candidates/bulk-import", files={"zip_file": ("x.zip", b"not a zip")}).status_code == 422
+
+
+def test_bulk_import_counts_are_right_when_run_in_parallel(api_client, monkeypatch):
+    c = api_client
+    monkeypatch.setenv("BULK_IMPORT_CONCURRENCY", "4")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    names = [f"Par{i}" for i in range(12)]
+
+    class Slow(FakeProvider):
+        async def complete(self, system, user, max_tokens=2000):
+            import asyncio
+            await asyncio.sleep(0.05)
+            n = user.split("Resume text:")[-1].strip()
+            from app.llm import LLMResult
+            return LLMResult(text=parsed(n, "X", f"{n.lower()}@example.com"), provider="fake", model="fake")
+
+    c.app.dependency_overrides[uploads.llm_dep] = lambda: Slow([])
+    z = make_zip({f"{n}.txt": n.encode() for n in names})
+    out = wait_for_import(c, c.post(f"{A}/candidates/bulk-import", files={"zip_file": ("p.zip", z)}).json()["batch_id"])
+    assert (out["created_count"], out["error_count"], out["status"]) == (12, 0, "completed")
 
 
 def test_reimport_merges_instead_of_duplicating(api_client):

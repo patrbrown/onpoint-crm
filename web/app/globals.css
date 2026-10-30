@@ -273,3 +273,13 @@ code { font-size: 12.5px; background: var(--line-2); padding: 1px 4px; border-ra
 details summary { cursor: pointer; list-style: revert; }
 @media (max-width: 900px) { .route, .route-fields, .cat-grid { grid-template-columns: 1fr; } .route-test { grid-column: 1; } }
 tr.picked td { background: var(--teal-wash); }
+
+/* ── Bulk import progress ──────────────────────────────────────────────── */
+.progress { display: block; height: 10px; background: var(--line-2); border-radius: 5px; overflow: hidden; margin-top: 6px; }
+.progress > span { display: block; height: 100%; background: var(--teal); transition: width .4s ease; }
+.progress > span.bad { background: var(--red); }
+.progress.small { height: 6px; width: 180px; margin: 0; }
+.import-banner { display: grid; gap: 6px; margin-bottom: 12px; }
+.import-row { display: flex; gap: 14px; align-items: center; background: var(--teal-wash); border: 1px solid #c6e2de; border-radius: var(--radius-m);
+  padding: 8px 12px; font: 500 13px var(--font); color: var(--ink); cursor: pointer; text-align: left; }
+.import-row .link-btn { margin-left: auto; }

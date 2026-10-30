@@ -15,6 +15,7 @@ from .routers import account, ai_settings, crm, inbox, job_descriptions, uploads
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await get_pool()
+    await uploads.mark_interrupted_imports()
     worker.start()
     yield
     worker.stop()
@@ -40,8 +41,8 @@ async def check_failed(request: Request, exc: asyncpg.CheckViolationError) -> JS
 
 
 app.include_router(account.router)
+app.include_router(uploads.router)   # before crm: /candidates/imports must not be read as a candidate id
 app.include_router(crm.router)
-app.include_router(uploads.router)
 app.include_router(inbox.router)
 app.include_router(job_descriptions.router)
 app.include_router(ai_settings.router)

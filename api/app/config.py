@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     ms_token_cache_path: str = "./.secrets/msal_cache.json"
     email_worker_enabled: bool = True   # set false in tests or to pause the agent
 
+    bulk_import_concurrency: int = 3    # resumes read in parallel during a bulk import
+
     cors_origins: str = "http://localhost:3000"
 
 
