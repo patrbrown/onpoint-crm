@@ -61,7 +61,7 @@ export default function CandidatePage() {
         </div>
       </div>
 
-      <div className="review">
+      <div className="cand-review">
         <ResumePane docs={docs.data} onUpload={() => setDrawer("resume")} />
         <div>
           <div className="tabs" role="tablist">
