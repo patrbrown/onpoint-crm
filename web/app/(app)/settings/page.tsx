@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Select } from "@/components/ui";
 import { StageEditor } from "@/components/StageEditor";
 import { TeamSettings } from "@/components/settings/TeamSettings";
+import { WebsiteSettings } from "@/components/settings/WebsiteSettings";
 import { api, t } from "@/lib/api";
 import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
@@ -12,7 +13,7 @@ import { InboxSettings } from "@/components/settings/InboxSettings";
 import { JevSettings } from "@/components/settings/JevSettings";
 import { ModelSettings } from "@/components/settings/ModelSettings";
 
-const TABS = [["pipelines", "Pipelines"], ["users", "Users"], ["models", "AI models"], ["sorting", "Email sorting"], ["inbox", "Email inbox"]] as const;
+const TABS = [["pipelines", "Pipelines"], ["users", "Users"], ["website", "Website"], ["models", "AI models"], ["sorting", "Email sorting"], ["inbox", "Email inbox"]] as const;
 type Tab = (typeof TABS)[number][0];
 
 export default function SettingsPage() {
@@ -28,13 +29,14 @@ export default function SettingsPage() {
   const ready = settings.data && status.data;
   return (
     <>
-      <div className="page-head"><div><h1>Settings</h1><p>Pipelines, users, AI models and how the email assistant works for this workspace.</p></div></div>
+      <div className="page-head"><div><h1>Settings</h1><p>Pipelines, users, your website, AI models and how the email assistant works for this workspace.</p></div></div>
       <div className="tabs" role="tablist">
         {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => go(k)}>{l}</button>)}
       </div>
       {tab === "pipelines" && <Pipelines />}
       {tab === "users" && <TeamSettings />}
-      {tab !== "pipelines" && tab !== "users" && !ready && <p className="muted">{settings.error || status.error || "Loading…"}</p>}
+      {tab === "website" && <WebsiteSettings />}
+      {!["pipelines", "users", "website"].includes(tab) && !ready && <p className="muted">{settings.error || status.error || "Loading…"}</p>}
       {ready && tab === "models" && <ModelSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
       {ready && tab === "sorting" && <JevSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
       {ready && tab === "inbox" && <InboxSettings settings={settings.data!} onSaved={settings.setData} />}

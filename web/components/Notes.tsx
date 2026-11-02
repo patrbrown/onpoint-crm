@@ -44,7 +44,7 @@ export function Notes({ candidateId }: { candidateId: string }) {
       {shown.map((n) => (
         <article key={n.id} className="note">
           <header className="note-meta">
-            <span><strong>{KIND[n.kind] ?? n.kind}</strong> · {n.author_name ?? "Unknown"} · <time dateTime={n.created_at}>{dateTime(n.created_at)}</time>
+            <span><strong>{KIND[n.kind] ?? n.kind}</strong> · {n.author_name ?? (n.kind === "system" ? "Automatic" : "Unknown")} · <time dateTime={n.created_at}>{dateTime(n.created_at)}</time>
               {n.updated_at && <span className="muted"> · edited{n.editor_name && n.editor_name !== n.author_name ? ` by ${n.editor_name}` : ""} {dateTime(n.updated_at)}</span>}
             </span>
             {n.can_edit && editing !== n.id && (

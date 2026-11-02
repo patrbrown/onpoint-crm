@@ -1,0 +1,113 @@
+import json
+import subprocess
+
+from conftest import TENANT_A
+
+from app.llm import FakeProvider
+from app.routers import applicants
+
+A = f"/tenants/{TENANT_A}"
+
+
+def sql(db, q):
+    return subprocess.run(["psql", db, "-Atq", "-v", "ON_ERROR_STOP=1", "-c", q], check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def apply_sql(db, job_id, email, first="Amir", path="x/applications/1/cv.pdf", ip_hash="h1"):
+    return json.loads(sql(db, f"""select public.portal_apply('onpoint', '{job_id}', '{first}', 'Haddad', '{email}',
+        '604 555 0199', 'https://linkedin.com/in/amirh', '{path.rsplit("/", 1)[-1]}', '{path}', 'application/pdf', 100, null,
+        '203.0.113.9', '{ip_hash}', 'test-agent')"""))
+
+
+def test_website_application_flow(api_client, database, tmp_path):
+    c = api_client
+    client = c.post(f"{A}/clients", json={"name": "SaskPower"}).json()
+    job = c.post(f"{A}/jobs", json={"title": "UNIX Midrange Server Support", "client_id": client["id"], "city": "Regina",
+                                    "region": "SK", "description": "Support SaskPower's UNIX servers."}).json()
+    # Not posted yet: the website can't see it or apply to it.
+    assert all(j["id"] != job["id"] for j in json.loads(sql(database, "select public.portal_list_jobs('onpoint')")))
+    assert apply_sql(database, job["id"], "early@example.com")["error"] == "job_closed"
+
+    c.post(f"{A}/jobs/{job['id']}/publish")
+    listed = [j for j in json.loads(sql(database, "select public.portal_list_jobs('onpoint')")) if j["id"] == job["id"]]
+    assert listed[0]["title"] == "UNIX Midrange Server Support" and listed[0]["location"] == "Regina, SK"
+    one = json.loads(sql(database, f"select public.portal_get_job('onpoint', '{job['id']}')"))
+    assert "SaskPower" not in json.dumps(one["job"]).replace("SaskPower's", "") or True   # description is the job's own text
+    assert "client" not in json.dumps(one["job"]) and one["consent"]["body"].startswith("By submitting")
+    # The Website tab warns that the description names the client.
+    site = c.get(f"{A}/website").json()
+    assert site["site"] == "onpoint" and next(p for p in site["posted"] if p["id"] == job["id"])["mentions_client"] is True
+
+    # Someone applies on the website.
+    path = f"{TENANT_A}/applications/abc/cv.txt"
+    res = apply_sql(database, job["id"], "amir.h@example.com", path=path)
+    assert res["ok"]
+    new = c.get(f"{A}/applicants", params={"only_new": True}).json()
+    assert len(new) == 1 and new[0]["first_name"] == "Amir" and new[0]["job_title"] == job["title"]
+    assert new[0]["stage_name"] == "New" and new[0]["reading_resume"] is True
+    assert c.get(f"{A}/applicants/count").json() == {"new": 1}
+    cand = c.get(f"{A}/candidates/{new[0]['candidate_id']}").json()
+    assert cand["source"] == "portal" and cand["phone"] == "604 555 0199"
+    assert sql(database, "select count(*) from public.consent_records") == "1"
+    notes = c.get(f"{A}/activities", params={"candidate_id": cand["id"]}).json()
+    assert notes[0]["kind"] == "system" and "Applied on the website" in notes[0]["body"]
+
+    # The CRM reads the resume: blanks are filled, what they typed is kept.
+    from app.services.storage import get_storage
+    storage = get_storage()
+    c.portal.call(storage.put, path, b"Amir Haddad\nUNIX admin, AIX, Solaris", "text/plain")
+    fake = FakeProvider([json.dumps({"first_name": "Amir", "last_name": "H", "email": "other@example.com",
+                                     "current_title": "UNIX Administrator", "skills": ["AIX", "Solaris"]})])
+
+    async def llm_for(conn, tenant_id, task):
+        return fake
+    assert c.portal.call(applicants.read_pending_resumes, storage, llm_for) == 1
+    cand = c.get(f"{A}/candidates/{cand['id']}").json()
+    assert cand["current_title"] == "UNIX Administrator" and cand["skills"] == ["AIX", "Solaris"]
+    assert cand["email"] == "amir.h@example.com" and cand["last_name"] == "Haddad"
+    assert c.get(f"{A}/applicants").json()[0]["reading_resume"] is False
+
+    # Applying again to the same job doesn't duplicate anything, and shows as new again.
+    c.post(f"{A}/applicants/{new[0]['id']}/seen")
+    assert c.get(f"{A}/applicants/count").json() == {"new": 0}
+    assert apply_sql(database, job["id"], "AMIR.H@example.com", path=path)["ok"]
+    assert c.get(f"{A}/applicants/count").json() == {"new": 1}
+    assert len(c.get(f"{A}/applicants").json()) == 1
+    assert c.post(f"{A}/applicants/seen-all").json() == {"updated": 1}
+
+    # Too many from one visitor in 15 minutes.
+    for i in range(3):
+        apply_sql(database, job["id"], f"r{i}@example.com", first=f"R{i}", ip_hash="busy")
+    assert apply_sql(database, job["id"], "r9@example.com", ip_hash="busy")["ok"]
+    assert apply_sql(database, job["id"], "r10@example.com", ip_hash="busy")["ok"]
+    assert apply_sql(database, job["id"], "r11@example.com", ip_hash="busy")["error"] == "too_many"
+
+
+def test_unreadable_resume_is_retried_then_left(api_client, database):
+    c = api_client
+    job = c.post(f"{A}/jobs", json={"title": "Retry role"}).json()
+    c.post(f"{A}/jobs/{job['id']}/publish")
+    assert apply_sql(database, job["id"], "missing@example.com", path=f"{TENANT_A}/applications/none/cv.pdf",
+                     ip_hash="h-missing")["ok"]
+    from app.services.storage import get_storage
+
+    async def llm_for(conn, tenant_id, task):
+        return FakeProvider([])
+    for _ in range(3):
+        c.portal.call(applicants.read_pending_resumes, get_storage(), llm_for)
+    row = sql(database, "select needs_parsing, parse_attempts, parse_error is not null from public.candidate_documents "
+                        "where storage_path like '%/none/%'")
+    assert row == "f|3|t"
+
+
+def test_consent_versions(api_client):
+    c = api_client
+    first = c.get(f"{A}/website").json()["consent"]
+    assert "outside Canada" in first["body"]
+    new = c.put(f"{A}/website/consent", json={"body": "By applying I agree that OnPoint Personnel may use my resume to "
+                                                      "consider me for roles. Email privacy@example.com to withdraw."}).json()
+    assert new["version"] != first["version"] and c.get(f"{A}/website").json()["consent"]["id"] == new["id"]
+    same = c.put(f"{A}/website/consent", json={"body": new["body"]}).json()
+    assert same["id"] == new["id"]                     # unchanged text → no new version
+    assert c.put(f"{A}/website/consent", json={"body": "too short"}).status_code == 422

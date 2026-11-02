@@ -57,3 +57,22 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/crm_test pytest
 # Web UI without Supabase login: leave NEXT_PUBLIC_SUPABASE_* empty and set DEV_USER_ID for the API
 cd web && npm install && npm run dev
 ```
+
+## Careers page on your website
+
+Jobs you post from a job's page ("Post to website") show on your website's careers page, and people apply there
+with their resume, name, email, phone and (optionally) LinkedIn. Applications land in Supabase straight away, even
+while your PC is off, and appear under **New applicants** in the CRM (the number in the sidebar).
+
+The website never shows the client's name: only the job title, location, work type and the description. If the
+description names the client, write a "Description for the website" when editing the job.
+
+Set up once (also shown in **Settings → Website**, with the exact code to paste):
+
+1. Run `supabase/migrations/20261102000001_careers_portal.sql` in the Supabase SQL Editor.
+2. Supabase → **Edge Functions → Deploy a new function → Via Editor**, name it `careers`, paste all of
+   `supabase/functions/careers/index.ts`, Deploy. Then turn **off "Verify JWT"** for that function and save.
+3. Paste the two lines from Settings → Website into your careers page (or give Replit Agent the copied instructions).
+
+To change the widget, edit `supabase/functions/careers/handler.ts` or `embed.js`, run `python build.py` in that
+folder, and paste the new `index.ts` into the function again.

@@ -341,3 +341,15 @@ table.team input { width: 100%; min-width: 120px; }
   .resume-pane { position: static; height: 70vh; }
 }
 @media (max-width: 900px) { .form-grid.three { grid-template-columns: 1fr; } }
+
+/* Website applicants */
+.side ul a { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nav-badge { background: #e8a33a; color: #1d2a33; font-size: 11px; font-weight: 700; border-radius: 9px; padding: 0 7px; line-height: 18px; min-width: 18px; text-align: center; }
+tr.unseen td:first-child a { font-weight: 700; }
+.new-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e8a33a; margin-right: 8px; vertical-align: middle; }
+.snippet { position: relative; background: #1d2a33; color: #e6eef0; border-radius: var(--radius-s); padding: 12px 14px; font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; margin: 8px 0; }
+.steps { padding-left: 20px; margin: 8px 0 0; } .steps li { margin-bottom: 10px; }
+.setup-status { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius-s); margin-bottom: 12px; font-size: 13px; }
+.setup-status.ok { background: var(--teal-wash); color: var(--teal-ink); }
+.setup-status.bad { background: var(--amber-wash); color: #8a5d0f; }
+.plain-list { list-style: none; padding: 0; margin: 0; } .plain-list li { padding: 6px 0; border-bottom: 1px solid var(--line-2); } .plain-list li:last-child { border-bottom: 0; }

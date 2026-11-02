@@ -42,6 +42,13 @@ export default function JobPage() {
   const j = job.data;
 
   async function togglePublish() {
+    if (!j.is_published) {
+      const text = ((j as any).public_description || j.description || "").toLowerCase();
+      const name = client.data?.name;
+      if (name && text.includes(name.toLowerCase()) && !confirm(
+        `The description mentions “${name}”, and it will show on your website. Post anyway?\n\n` +
+        "To hide it, click Cancel, then Edit and write a “Description for the website”.")) return;
+    }
     try {
       await api(t(tenant.id, `/jobs/${id}/publish?published=${!j.is_published}`), { method: "POST" });
       toast(j.is_published ? "Removed from the website" : "Posted to the website");

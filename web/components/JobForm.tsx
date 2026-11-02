@@ -132,12 +132,10 @@ export function JobForm({ job, onSaved, onCancel }: { job?: Job; onSaved: (j: Jo
         </Field>
         <Field label="Job description" wide>
           <textarea rows={8} value={f.description} onChange={on("description")} /></Field>
-        <Field label="Description for the website" hint="Leave empty to use the job description" wide>
+        <Field label="Description for the website" hint="Leave empty to use the job description. Write one here if the description names the client." wide>
           <textarea rows={5} value={f.public_description} onChange={on("public_description")} /></Field>
-        <label className="check field wide">
-          <input type="checkbox" checked={f.hide_client_name} onChange={(e) => set("hide_client_name")(e.target.checked)} />
-          Hide the client’s name on the website
-        </label>
+        <p className="field-hint field wide" style={{ margin: 0 }}>Your website shows the job title, location, work type and the
+          description above; never the client’s name.</p>
       </div>
       <div className="form-foot">
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>

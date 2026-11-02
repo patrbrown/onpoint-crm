@@ -14,6 +14,7 @@ import { Drawer, Select, Status, useToast } from "@/components/ui";
 import { api, t } from "@/lib/api";
 import { date, fullName, label } from "@/lib/format";
 import { useData } from "@/lib/hooks";
+import { applicantsChanged } from "@/lib/applicants";
 import { useSession } from "@/lib/session";
 import type { Application, Candidate, Doc, Feedback, Job } from "@/lib/types";
 
@@ -28,6 +29,14 @@ export default function CandidatePage() {
   const [tab, setTab] = useState<"notes" | "details" | "jobs">("notes");
   const [drawer, setDrawer] = useState<"none" | "edit" | "job" | "feedback" | "resume">("none");
   const [fbVersion, setFbVersion] = useState(0);
+
+  // Opening someone who applied on the website counts as seeing them.
+  const unseen = (apps.data ?? []).filter((a: any) => a.source === "portal" && !a.seen_at).map((a) => a.id).join(",");
+  useEffect(() => {
+    if (!unseen) return;
+    Promise.all(unseen.split(",").map((aid) => api(t(tenant.id, `/applicants/${aid}/seen`), { method: "POST" })))
+      .then(applicantsChanged).catch(() => {});
+  }, [unseen, tenant.id]);
 
   if (cand.error) return <div className="form-error">{cand.error}</div>;
   if (!cand.data) return <p className="muted">Loading…</p>;

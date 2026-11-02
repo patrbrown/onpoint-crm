@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useNewApplicantCount } from "@/lib/applicants";
 import { useSession } from "@/lib/session";
 
 const NAV = [
   { href: "/jobs", label: "Jobs" },
+  { href: "/applicants", label: "New applicants" },
   { href: "/candidates", label: "Candidates" },
   { href: "/clients", label: "Clients" },
   { href: "/inbox", label: "Email inbox" },
@@ -15,6 +17,7 @@ const NAV = [
 export function Shell({ children }: { children: React.ReactNode }) {
   const { me, tenant, setTenant, signOut } = useSession();
   const path = usePathname();
+  const newApplicants = useNewApplicantCount(tenant.id);
   return (
     <div className="shell">
       <nav className="side" aria-label="Main">
@@ -32,7 +35,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {NAV.map((n) => (
             <li key={n.href}>
               <Link href={n.href} className={path.startsWith(n.href) ? "active" : ""}
-                    aria-current={path.startsWith(n.href) ? "page" : undefined}>{n.label}</Link>
+                    aria-current={path.startsWith(n.href) ? "page" : undefined}>
+                {n.label}
+                {n.href === "/applicants" && newApplicants > 0 && (
+                  <span className="nav-badge" aria-label={`${newApplicants} new`}>{newApplicants > 99 ? "99+" : newApplicants}</span>
+                )}
+              </Link>
             </li>
           ))}
         </ul>
