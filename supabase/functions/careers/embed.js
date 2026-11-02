@@ -76,9 +76,25 @@
     if (days < 31) return "Posted " + days + " days ago";
     return "Posted " + d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   }
+  var VERSION = "2026-11-02.3";
+  /* Never waits forever: gives up after 15 seconds with a reason the page can show. */
   function getJSON(path) {
-    return fetch(base + path).then(function (r) {
-      return r.json().then(function (b) { if (!r.ok) throw new Error(b.error || "Request failed"); return b; });
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 15000);
+    return fetch(base + path, ctrl ? { signal: ctrl.signal } : {}).then(function (r) {
+      return r.text().then(function (t) {
+        var b; try { b = JSON.parse(t); } catch (e) { b = null; }
+        if (!r.ok) throw new Error((b && (b.error || b.message || b.msg)) || ("HTTP " + r.status));
+        if (!b) throw new Error("The careers service sent an unexpected reply");
+        return b;
+      });
+    }, function (e) {
+      throw new Error(e && e.name === "AbortError" ? "The careers service didn’t answer within 15 seconds"
+        : "Couldn’t reach the careers service (" + ((e && e.message) || "network error") + ")");
+    }).then(function (b) { clearTimeout(timer); return b; }, function (e) {
+      clearTimeout(timer);
+      if (window.console) console.warn("[OnPoint careers " + VERSION + "] " + base + path + ": " + e.message);
+      throw e;
     });
   }
   function css() {
@@ -114,7 +130,7 @@
       ".opj-err{color:#b4412f;margin:10px 0 0;font-size:.92em}",
       ".opj-ok{padding:18px;border-radius:8px;background:rgba(11,122,117,.08);border:1px solid var(--opj-accent)}",
       ".opj-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}",
-      ".opj-muted{opacity:.7}",
+      ".opj-muted{opacity:.7}.opj-small{font-size:.8em}",
       ".opj-general{border-style:dashed}.opj-after{margin-top:10px}",
       ".opj-badge{display:inline-block;font-size:.7em;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--opj-accent);border:1px solid var(--opj-accent);border-radius:10px;padding:0 7px;margin-left:6px;vertical-align:middle}",
       ".opj-skills{border:1px solid rgba(0,0,0,.25);border-radius:6px;background:#fff;color:#111;padding:6px;font-weight:400}",
@@ -134,6 +150,7 @@
   function start(root) {
     css();
     root.classList.add("opj");
+    root.setAttribute("data-opj-version", VERSION);
     function route() {
       var m = location.hash.match(/^#job-([0-9a-f-]{36})$/i);
       if (m) showJob(m[1]);
@@ -143,8 +160,15 @@
     function loadList() {
       if (listCache) return Promise.resolve(listCache);
       var q = "?site=" + encodeURIComponent(site);
-      return Promise.all([getJSON("/jobs" + q), getJSON("/general" + q).catch(function () { return { open: false }; })])
-        .then(function (r) { listCache = { jobs: r[0].jobs || [], general: r[1] }; return listCache; });
+      // Load the two separately, so the general application still shows if the jobs list fails (and vice versa).
+      return Promise.all([
+        getJSON("/jobs" + q).then(function (b) { return { jobs: b.jobs || [] }; }, function (e) { return { error: e.message }; }),
+        getJSON("/general" + q).catch(function () { return { open: false }; })
+      ]).then(function (r) {
+        var out = { jobs: r[0].jobs || [], jobsError: r[0].error || null, general: r[1] };
+        if (!out.jobsError) listCache = out;
+        return out;
+      });
     }
     function showList() {
       root.innerHTML = '<p class="opj-muted">Loading open roles…</p>';
@@ -152,6 +176,12 @@
         var jobs = b.jobs, g = b.general || {};
         var generalCard = g.open ? '<a class="opj-card opj-general" href="#general-application"><div><p class="opj-title">' + esc(g.title) +
           ' <span class="opj-badge">Always open</span></p><p class="opj-meta">' + esc(g.intro) + '</p></div><span class="opj-go">Send your profile →</span></a>' : "";
+        if (b.jobsError) {
+          root.innerHTML = '<p class="opj-muted">Open roles couldn’t be loaded right now. Please refresh the page or try again later.</p>' +
+            '<p class="opj-muted opj-small">Details: ' + esc(b.jobsError) + "</p>" +
+            (generalCard ? '<div class="opj-list">' + generalCard + "</div>" : "");
+          return;
+        }
         if (!jobs.length) {
           root.innerHTML = '<p class="opj-muted">There are no open roles right now.' + (g.open ? "" : " Please check back soon.") + "</p>" +
             (generalCard ? '<div class="opj-list">' + generalCard + "</div>" : "");
@@ -175,6 +205,7 @@
         if (search) search.addEventListener("input", function () { draw(search.value); });
       }).catch(function () {
         root.innerHTML = '<p class="opj-muted">Open roles couldn’t be loaded. Please refresh the page or try again later.</p>';
+        if (window.console) console.error("[OnPoint careers " + VERSION + "] showing the list failed", arguments[0]);
       });
     }
     function back() {
