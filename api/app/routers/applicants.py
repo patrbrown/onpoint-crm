@@ -30,7 +30,7 @@ log = logging.getLogger("applicants")
 APPLICANTS = """
     select * from (
       select 'job' as kind, a.id, a.candidate_id, a.job_id, coalesce(a.applied_at, a.created_at) as applied_at, a.seen_at,
-             j.title as job_title, st.name as stage_name, null::text[] as skills
+             j.title as job_title, st.name as stage_name, a.portal_skills as skills
       from public.applications a join public.jobs j on j.id = a.job_id
       left join public.pipeline_stages st on st.id = a.stage_id
       where a.tenant_id = $1 and a.source = 'portal'

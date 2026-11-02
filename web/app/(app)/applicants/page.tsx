@@ -67,8 +67,9 @@ export default function ApplicantsPage() {
                     <a href={`/candidates/${a.candidate_id}`} onClick={(e) => e.preventDefault()}>{fullName(a)}</a>
                     <span className="sub">{a.reading_resume ? "Reading resume…" : [a.current_title, a.location].filter(Boolean).join(", ")}</span></td>
                   <td>{a.kind === "general"
-                    ? <><span className="general-label">General application</span>{(a.skills ?? []).length > 0 && <span className="sub"><Tags items={a.skills!.slice(0, 6)} />{a.skills!.length > 6 ? ` +${a.skills!.length - 6}` : ""}</span>}</>
-                    : <Link href={`/jobs/${a.job_id}`} onClick={(e) => e.stopPropagation()}>{a.job_title}</Link>}</td>
+                    ? <span className="general-label">General application</span>
+                    : <Link href={`/jobs/${a.job_id}`} onClick={(e) => e.stopPropagation()}>{a.job_title}</Link>}
+                    {(a.skills ?? []).length > 0 && <span className="sub"><Tags items={a.skills!.slice(0, 6)} />{a.skills!.length > 6 ? ` +${a.skills!.length - 6}` : ""}</span>}</td>
                   <td className="muted">{dateTime(a.applied_at)}</td>
                   <td>{a.email}<span className="sub">{a.phone}</span></td>
                   <td>{a.kind === "general" ? <span className="muted">Not on a job</span> : a.stage_name}</td>

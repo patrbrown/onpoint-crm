@@ -219,11 +219,12 @@
         root.innerHTML =
           '<div class="opj-detail"><button type="button" class="opj-back">← All open roles</button>' +
           '<h2 class="opj-title">' + esc(j.title) + '</h2><p class="opj-meta">' + [meta(j), esc(posted(j.posted))].filter(Boolean).join(" · ") + "</p>" +
-          '<div class="opj-desc">' + md(j.description) + "</div>" + formHtml("Apply for this role", consent) + "</div>";
+          '<div class="opj-desc">' + md(j.description) + "</div>" + formHtml("Apply for this role", consent, skillsField()) + "</div>";
         back();
+        var picker = skillPicker(root.querySelector(".opj-skills"), b.skills || []);
         wireForm(root.querySelector("form"), "/apply", { site: site, job_id: j.id, consent_version: consent.id || "" },
           "<strong>Thank you, your application has been sent.</strong><br>We’ve received your resume for " + esc(j.title) +
-          ". If your background is a fit, we’ll be in touch.");
+          ". If your background is a fit, we’ll be in touch.", picker.values);
         root.scrollIntoView({ behavior: "smooth", block: "start" });
       }).catch(function () {
         root.innerHTML = '<p class="opj-muted">This role is no longer open.</p><button type="button" class="opj-back">← All open roles</button>';
@@ -235,14 +236,9 @@
       getJSON("/general?site=" + encodeURIComponent(site)).then(function (g) {
         if (!g.open) throw new Error("closed");
         var consent = g.consent || {};
-        var skillsField = '<div class="opj-field wide"><span id="opj-skills-label">Your skills <span class="opj-opt">(pick from the list, or type your own and press Enter)</span></span>' +
-          '<div class="opj-skills"><div class="opj-chips" aria-live="polite"></div>' +
-          '<div class="opj-combo"><input name="skill_search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="opj-skill-list" ' +
-          'aria-labelledby="opj-skills-label" placeholder="e.g. Epic Beaker, HL7, project management" autocomplete="off" maxlength="60">' +
-          '<ul class="opj-options" id="opj-skill-list" role="listbox" hidden></ul></div></div></div>';
         root.innerHTML = '<div class="opj-detail"><button type="button" class="opj-back">← All open roles</button>' +
           '<h2 class="opj-title">' + esc(g.title) + '</h2><div class="opj-desc"><p>' + esc(g.intro) + "</p></div>" +
-          formHtml("Send us your profile", consent, skillsField) + "</div>";
+          formHtml("Send us your profile", consent, skillsField()) + "</div>";
         back();
         var picker = skillPicker(root.querySelector(".opj-skills"), g.skills || []);
         wireForm(root.querySelector("form"), "/apply-general", { site: site, consent_version: consent.id || "" },
@@ -253,6 +249,13 @@
         root.innerHTML = '<p class="opj-muted">We aren’t taking general applications right now.</p><button type="button" class="opj-back">← All open roles</button>';
         back();
       });
+    }
+    function skillsField() {
+      return '<div class="opj-field wide"><span id="opj-skills-label">Your skills <span class="opj-opt">(pick from the list, or type your own and press Enter)</span></span>' +
+        '<div class="opj-skills"><div class="opj-chips" aria-live="polite"></div>' +
+        '<div class="opj-combo"><input name="skill_search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="opj-skill-list" ' +
+        'aria-labelledby="opj-skills-label" placeholder="e.g. Epic Beaker, HL7, project management" autocomplete="off" maxlength="60">' +
+        '<ul class="opj-options" id="opj-skill-list" role="listbox" hidden></ul></div></div></div>';
     }
     /* Search-as-you-type skill picker: choose from the list (grouped by category) or add your own. */
     function skillPicker(box, catalog) {

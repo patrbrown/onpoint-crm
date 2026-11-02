@@ -78,7 +78,8 @@ Set up once (also shown in **Settings → Website**, with the exact code to past
 resume, contact details and skills without choosing a job; they appear under New applicants and are added as
 candidates. Skills come from a list (Settings → Website → Skills) that grows: a skill an applicant types joins the
 public list once 2 different applicants have used it (you can change that number, and list, hide or rename any skill).
-Needs `supabase/migrations/20261102000002_general_application.sql` and the updated careers function.
+Job application forms have the same skills picker. Needs `supabase/migrations/20261102000002_general_application.sql`,
+`20261102000003_job_application_skills.sql` and the updated careers function.
 
 To change the widget, edit `supabase/functions/careers/handler.ts` or `embed.js`, run `python build.py` in that
 folder, and paste the new `index.ts` into the function again.

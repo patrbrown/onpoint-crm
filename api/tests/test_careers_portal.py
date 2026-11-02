@@ -162,3 +162,35 @@ def test_general_application_and_growing_skills_list(api_client, database):
     assert apply_general(database, "late@example.com", [], ip_hash="gC")["error"] == "closed"
     w = c.patch(f"{A}/website/general", json={"enabled": True, "title": "Join our talent network"}).json()
     assert w["enabled"] and w["title"] == "Join our talent network"
+
+
+def test_job_application_skills(api_client, database):
+    c = api_client
+    job = c.post(f"{A}/jobs", json={"title": "Willow Analyst"}).json()
+    c.post(f"{A}/jobs/{job['id']}/publish")
+    one = json.loads(sql(database, f"select public.portal_get_job('onpoint', '{job['id']}')"))
+    assert any(k["name"] == "Epic Willow" for k in one["skills"])
+
+    def apply_with(email, skills, ip):
+        arr = "array[" + ",".join(f"'{s}'" for s in skills) + "]::text[]"
+        return json.loads(sql(database, f"""select public.portal_apply('onpoint', '{job['id']}', 'Sam', 'Ortiz', '{email}',
+            '6045550123', '', 'cv.pdf', 'x/applications/s/cv.pdf', 'application/pdf', 10, null, '203.0.113.5', '{ip}', 'ua',
+            {arr})"""))
+    assert apply_with("sam.o@example.com", ["epic willow", "Compounding audits", "Compounding audits"], "jA")["ok"]
+    row = next(a for a in c.get(f"{A}/applicants").json() if a["kind"] == "job" and a["job_id"] == job["id"])
+    assert row["skills"] == ["Epic Willow", "Compounding audits"]
+    cand = c.get(f"{A}/candidates/{row['candidate_id']}").json()
+    assert {"Epic Willow", "Compounding audits"} <= set(cand["skills"])
+    notes = c.get(f"{A}/activities", params={"candidate_id": cand["id"]}).json()
+    assert "Skills: Epic Willow, Compounding audits" in notes[0]["body"]
+
+    skill = lambda: {k["name"]: k for k in c.get(f"{A}/portal-skills").json()}["Compounding audits"]
+    assert (skill()["status"], skill()["uses"]) == ("pending", 1)
+    # Same person on the general application: still one use. A different person: listed.
+    apply_general(database, "sam.o@example.com", ["Compounding audits"], first="Sam", ip_hash="jB")
+    assert skill()["uses"] == 1
+    assert apply_with("lee.w@example.com", ["COMPOUNDING AUDITS"], "jC")["ok"]
+    assert (skill()["status"], skill()["uses"]) == ("listed", 2)
+    # Applying without skills still works (the old form).
+    assert json.loads(sql(database, f"""select public.portal_apply('onpoint', '{job['id']}', 'No', 'Skills', 'ns@example.com',
+        '6045550124', '', 'cv.pdf', 'x/applications/n/cv.pdf', 'application/pdf', 10, null, '203.0.113.6', 'jD', 'ua')"""))["ok"]

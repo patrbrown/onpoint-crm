@@ -1,7 +1,7 @@
 // Careers page backend for the agency website (Supabase Edge Function "careers").
 //   GET  /careers/embed.js              the widget the website loads
 //   GET  /careers/jobs?site=SLUG        published, open jobs (title, location, work type; never the client)
-//   GET  /careers/jobs/ID?site=SLUG     one job with its description and the consent text
+//   GET  /careers/jobs/ID?site=SLUG     one job with its description, the skills list and the consent text
 //   POST /careers/apply                 an application (multipart form with the resume)
 //   GET  /careers/general?site=SLUG     the general application: intro, skills list, consent text
 //   POST /careers/apply-general         a general application (resume, contact details, skills)
@@ -127,7 +127,7 @@ async function apply(req: Request, general: boolean): Promise<Response> {
   const skills = form.getAll("skills").map((x) => String(x).slice(0, 80)).filter(Boolean).slice(0, 60);
   const { data, error } = general
     ? await sb.rpc("portal_apply_general", { ...common, p_skills: skills })
-    : await sb.rpc("portal_apply", { ...common, p_job_id: jobId });
+    : await sb.rpc("portal_apply", { ...common, p_job_id: jobId, p_skills: skills });
   if (error || !data?.ok) {
     await sb.storage.from(BUCKET).remove([path]);
     if (error) throw error;
