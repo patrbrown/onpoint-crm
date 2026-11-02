@@ -353,3 +353,9 @@ tr.unseen td:first-child a { font-weight: 700; }
 .setup-status.ok { background: var(--teal-wash); color: var(--teal-ink); }
 .setup-status.bad { background: var(--amber-wash); color: #8a5d0f; }
 .plain-list { list-style: none; padding: 0; margin: 0; } .plain-list li { padding: 6px 0; border-bottom: 1px solid var(--line-2); } .plain-list li:last-child { border-bottom: 0; }
+.general-label { font-weight: 600; color: var(--teal-ink); } .sub .tags { margin-top: 3px; }
+.inline-select { display: inline-block; width: auto; padding: 1px 4px; margin: 0 2px; font-size: 13px; }
+.s-skill-listed { background: var(--teal-wash); color: var(--teal-ink); }
+.s-skill-pending { background: var(--amber-wash); color: #8a5d0f; }
+.s-skill-hidden { background: var(--line-2); color: var(--ink-3); }
+.nowrap { white-space: nowrap; }

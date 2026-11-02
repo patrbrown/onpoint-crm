@@ -3,6 +3,8 @@
 //   GET  /careers/jobs?site=SLUG        published, open jobs (title, location, work type; never the client)
 //   GET  /careers/jobs/ID?site=SLUG     one job with its description and the consent text
 //   POST /careers/apply                 an application (multipart form with the resume)
+//   GET  /careers/general?site=SLUG     the general application: intro, skills list, consent text
+//   POST /careers/apply-general         a general application (resume, contact details, skills)
 // Public by design: turn OFF "Verify JWT" for this function. Every request is checked here instead.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -48,7 +50,14 @@ Deno.serve(async (req) => {
       if (!data) return json({ error: "This role is no longer open." }, 404);
       return json(data, 200, { "cache-control": "public, max-age=60" });
     }
-    if (req.method === "POST" && path === "/apply") return await apply(req);
+    if (req.method === "GET" && path === "/general") {
+      if (!SLUG.test(site)) return json({ error: "Unknown site" }, 400);
+      const { data, error } = await sb.rpc("portal_general", { p_slug: site });
+      if (error) throw error;
+      return json(data ? { open: true, ...data } : { open: false }, 200, { "cache-control": "public, max-age=60" });
+    }
+    if (req.method === "POST" && path === "/apply") return await apply(req, false);
+    if (req.method === "POST" && path === "/apply-general") return await apply(req, true);
     return json({ error: "Not found" }, 404);
   } catch (e) {
     console.error(e);
@@ -70,7 +79,7 @@ async function sha256(s: string): Promise<string> {
   return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function apply(req: Request): Promise<Response> {
+async function apply(req: Request, general: boolean): Promise<Response> {
   if (Number(req.headers.get("content-length") || 0) > MAX_FILE + 512 * 1024)
     return json({ error: "Your resume is larger than 10 MB. Please attach a smaller file." }, 413);
   let form: FormData;
@@ -82,7 +91,7 @@ async function apply(req: Request): Promise<Response> {
   const first = v("first_name", 100), last = v("last_name", 100);
   const email = v("email", 254).toLowerCase(), phone = v("phone", 40);
   let linkedin = v("linkedin", 300);
-  if (!SLUG.test(site) || !UUID.test(jobId)) return json({ error: "This role is no longer open." }, 404);
+  if (!SLUG.test(site) || (!general && !UUID.test(jobId))) return json({ error: "This role is no longer open." }, 404);
   if (!first || !last) return json({ error: "Please enter your first and last name." }, 400);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Please enter a valid email address." }, 400);
   if ((phone.match(/\d/g) || []).length < 7) return json({ error: "Please enter a phone number we can reach you on." }, 400);
@@ -108,16 +117,22 @@ async function apply(req: Request): Promise<Response> {
   const up = await sb.storage.from(BUCKET).upload(path, bytes, { contentType: kind.mime, upsert: false });
   if (up.error) throw up.error;
 
-  const { data, error } = await sb.rpc("portal_apply", {
-    p_slug: site, p_job_id: jobId, p_first: first, p_last: last, p_email: email, p_phone: phone,
+  const common = {
+    p_slug: site, p_first: first, p_last: last, p_email: email, p_phone: phone,
     p_linkedin: linkedin, p_file_name: file.name.slice(-200), p_storage_path: path, p_mime: kind.mime,
     p_size: file.size, p_consent_version: UUID.test(v("consent_version", 40)) ? v("consent_version", 40) : null,
     p_ip: ip, p_ip_hash: await sha256(`${site}|${ip}`), p_user_agent: req.headers.get("user-agent") || "",
-  });
+  };
+  // Skills arrive as repeated "skills" fields; the database tidies and checks them.
+  const skills = form.getAll("skills").map((x) => String(x).slice(0, 80)).filter(Boolean).slice(0, 60);
+  const { data, error } = general
+    ? await sb.rpc("portal_apply_general", { ...common, p_skills: skills })
+    : await sb.rpc("portal_apply", { ...common, p_job_id: jobId });
   if (error || !data?.ok) {
     await sb.storage.from(BUCKET).remove([path]);
     if (error) throw error;
     if (data.error === "job_closed") return json({ error: "Sorry, this role has just closed." }, 410);
+    if (data.error === "closed") return json({ error: "Sorry, we aren’t taking general applications right now." }, 410);
     if (data.error === "too_many") return json({ error: "We’ve received several applications from you just now. Please wait a few minutes and try again." }, 429);
     throw new Error(`portal_apply: ${data.error}`);
   }

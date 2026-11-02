@@ -66,11 +66,16 @@ export type AiStatus = {
   jev_defaults: Required<JevConfig>;
 };
 export type Applicant = {
-  id: string; candidate_id: string; job_id: string; applied_at: string; seen_at: string | null; first_name: string;
+  kind: "job" | "general"; skills: string[] | null;
+  id: string; candidate_id: string; job_id: string | null; applied_at: string; seen_at: string | null; first_name: string;
   last_name: string | null; email: string | null; phone: string | null; current_title: string | null; location: string | null;
-  job_title: string; stage_name: string | null; reading_resume: boolean;
+  job_title: string | null; stage_name: string | null; reading_resume: boolean;
 };
 export type Website = {
   site: string; careers_url: string | null; consent: { id: string; version: string; body: string; created_at: string } | null;
   posted: { id: string; title: string; has_website_text: boolean; client_name: string | null; mentions_client: boolean }[];
+  general: { enabled: boolean; title: string; intro: string; auto_list_after: number } | null;
+};
+export type PortalSkill = {
+  id: string; name: string; category: string; status: "listed" | "pending" | "hidden"; uses: number; added_by_applicant: boolean;
 };

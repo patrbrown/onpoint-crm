@@ -115,6 +115,17 @@
       ".opj-ok{padding:18px;border-radius:8px;background:rgba(11,122,117,.08);border:1px solid var(--opj-accent)}",
       ".opj-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}",
       ".opj-muted{opacity:.7}",
+      ".opj-general{border-style:dashed}.opj-after{margin-top:10px}",
+      ".opj-badge{display:inline-block;font-size:.7em;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--opj-accent);border:1px solid var(--opj-accent);border-radius:10px;padding:0 7px;margin-left:6px;vertical-align:middle}",
+      ".opj-skills{border:1px solid rgba(0,0,0,.25);border-radius:6px;background:#fff;color:#111;padding:6px;font-weight:400}",
+      ".opj-chips{display:flex;flex-wrap:wrap;gap:6px}.opj-chips:empty{display:none}.opj-chips:not(:empty){margin-bottom:6px}",
+      ".opj-chip{display:inline-flex;align-items:center;gap:2px;background:rgba(11,122,117,.1);color:#063f3c;border-radius:12px;padding:2px 4px 2px 10px;font-size:.9em}",
+      ".opj-chip button{background:none;border:0;font-size:1.1em;line-height:1;cursor:pointer;color:inherit;padding:0 5px}",
+      ".opj-combo{position:relative}.opj-combo input{width:100%;border:0;outline:none;font:inherit;padding:4px;background:transparent;color:#111}",
+      ".opj-options{position:absolute;z-index:20;left:-7px;right:-7px;top:calc(100% + 6px);max-height:260px;overflow:auto;margin:0;padding:4px 0;list-style:none;background:#fff;border:1px solid rgba(0,0,0,.2);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.12)}",
+      ".opj-options li[role=option]{padding:6px 12px;cursor:pointer}.opj-options li.on,.opj-options li[role=option]:hover{background:rgba(11,122,117,.1)}",
+      ".opj-cat{padding:8px 12px 2px;font-size:.75em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;opacity:.6}",
+      ".opj-new{font-style:italic}",
       "@media (max-width:640px){.opj-grid{grid-template-columns:1fr}.opj-card{flex-direction:column;align-items:flex-start}}"
     ].join("\n");
     document.head.appendChild(s);
@@ -125,16 +136,29 @@
     root.classList.add("opj");
     function route() {
       var m = location.hash.match(/^#job-([0-9a-f-]{36})$/i);
-      if (m) showJob(m[1]); else showList();
+      if (m) showJob(m[1]);
+      else if (location.hash === "#general-application") showGeneral();
+      else showList();
+    }
+    function loadList() {
+      if (listCache) return Promise.resolve(listCache);
+      var q = "?site=" + encodeURIComponent(site);
+      return Promise.all([getJSON("/jobs" + q), getJSON("/general" + q).catch(function () { return { open: false }; })])
+        .then(function (r) { listCache = { jobs: r[0].jobs || [], general: r[1] }; return listCache; });
     }
     function showList() {
       root.innerHTML = '<p class="opj-muted">Loading open roles…</p>';
-      (listCache ? Promise.resolve(listCache) : getJSON("/jobs?site=" + encodeURIComponent(site))).then(function (b) {
-        listCache = b;
-        var jobs = b.jobs || [];
-        if (!jobs.length) { root.innerHTML = '<p class="opj-muted">There are no open roles right now. Please check back soon.</p>'; return; }
+      loadList().then(function (b) {
+        var jobs = b.jobs, g = b.general || {};
+        var generalCard = g.open ? '<a class="opj-card opj-general" href="#general-application"><div><p class="opj-title">' + esc(g.title) +
+          ' <span class="opj-badge">Always open</span></p><p class="opj-meta">' + esc(g.intro) + '</p></div><span class="opj-go">Send your profile →</span></a>' : "";
+        if (!jobs.length) {
+          root.innerHTML = '<p class="opj-muted">There are no open roles right now.' + (g.open ? "" : " Please check back soon.") + "</p>" +
+            (generalCard ? '<div class="opj-list">' + generalCard + "</div>" : "");
+          return;
+        }
         root.innerHTML = (jobs.length > 6 ? '<input class="opj-search" type="search" placeholder="Search roles or locations" aria-label="Search roles">' : "") +
-          '<div class="opj-list" role="list"></div>';
+          '<div class="opj-list" role="list"></div>' + (generalCard ? '<div class="opj-list opj-after">' + generalCard + "</div>" : "");
         var listEl = root.querySelector(".opj-list"), search = root.querySelector(".opj-search");
         function draw(q) {
           var words = (q || "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -153,6 +177,41 @@
         root.innerHTML = '<p class="opj-muted">Open roles couldn’t be loaded. Please refresh the page or try again later.</p>';
       });
     }
+    function back() {
+      root.querySelector(".opj-back").addEventListener("click", function () { location.hash = ""; root.scrollIntoView({ behavior: "smooth" }); });
+    }
+    function formHtml(heading, consent, extra) {
+      return '<form class="opj-form" novalidate><h3>' + heading + '</h3><div class="opj-grid">' +
+        field("first_name", "First name", "text", true, "given-name") + field("last_name", "Last name", "text", true, "family-name") +
+        field("email", "Email", "email", true, "email") + field("phone", "Phone", "tel", true, "tel") +
+        field("linkedin", 'LinkedIn profile <span class="opj-opt">(optional)</span>', "url", false, "url", "https://www.linkedin.com/in/…", true) +
+        (extra || "") +
+        '<label class="opj-field wide"><span>Resume (PDF or Word, up to 10 MB)</span><input name="resume" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label>' +
+        '</div><div class="opj-hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>' +
+        '<div class="opj-consent">' + esc(consent.body || "") + "</div>" +
+        '<label class="opj-check"><input type="checkbox" name="consent" required> <span>I have read and agree to the above.</span></label>' +
+        '<button class="opj-btn" type="submit">Submit application</button><p class="opj-err" role="alert"></p></form>';
+    }
+    function wireForm(form, endpoint, fields, done, getSkills) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var err = form.querySelector(".opj-err"), btn = form.querySelector(".opj-btn");
+        var problem = check(form);
+        if (problem) { err.textContent = problem; return; }
+        var data = new FormData(form);
+        data.delete("skill_search");
+        Object.keys(fields).forEach(function (k) { data.append(k, fields[k]); });
+        (getSkills ? getSkills() : []).forEach(function (s) { data.append("skills", s); });
+        btn.disabled = true; btn.textContent = "Sending…"; err.textContent = "";
+        fetch(base + endpoint, { method: "POST", body: data }).then(function (r) {
+          return r.json().then(function (b) { if (!r.ok || !b.ok) throw new Error(b.error || "Something went wrong"); });
+        }).then(function () {
+          form.outerHTML = '<div class="opj-ok" role="status">' + done + "</div>";
+        }).catch(function (x) {
+          err.textContent = x.message; btn.disabled = false; btn.textContent = "Submit application";
+        });
+      });
+    }
     function showJob(id) {
       root.innerHTML = '<p class="opj-muted">Loading…</p>';
       getJSON("/jobs/" + id + "?site=" + encodeURIComponent(site)).then(function (b) {
@@ -160,40 +219,108 @@
         root.innerHTML =
           '<div class="opj-detail"><button type="button" class="opj-back">← All open roles</button>' +
           '<h2 class="opj-title">' + esc(j.title) + '</h2><p class="opj-meta">' + [meta(j), esc(posted(j.posted))].filter(Boolean).join(" · ") + "</p>" +
-          '<div class="opj-desc">' + md(j.description) + "</div>" +
-          '<form class="opj-form" novalidate><h3>Apply for this role</h3><div class="opj-grid">' +
-          field("first_name", "First name", "text", true, "given-name") + field("last_name", "Last name", "text", true, "family-name") +
-          field("email", "Email", "email", true, "email") + field("phone", "Phone", "tel", true, "tel") +
-          field("linkedin", 'LinkedIn profile <span class="opj-opt">(optional)</span>', "url", false, "url", "https://www.linkedin.com/in/…", true) +
-          '<label class="opj-field wide"><span>Resume (PDF or Word, up to 10 MB)</span><input name="resume" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label>' +
-          '</div><div class="opj-hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>' +
-          '<div class="opj-consent">' + esc(consent.body || "") + "</div>" +
-          '<label class="opj-check"><input type="checkbox" name="consent" required> <span>I have read and agree to the above.</span></label>' +
-          '<button class="opj-btn" type="submit">Submit application</button><p class="opj-err" role="alert"></p></form></div>';
-        root.querySelector(".opj-back").addEventListener("click", function () { location.hash = ""; root.scrollIntoView({ behavior: "smooth" }); });
-        var form = root.querySelector("form");
-        form.addEventListener("submit", function (e) {
-          e.preventDefault();
-          var err = form.querySelector(".opj-err"), btn = form.querySelector(".opj-btn");
-          var problem = check(form);
-          if (problem) { err.textContent = problem; return; }
-          var data = new FormData(form);
-          data.append("site", site); data.append("job_id", j.id); data.append("consent_version", consent.id || "");
-          btn.disabled = true; btn.textContent = "Sending…"; err.textContent = "";
-          fetch(base + "/apply", { method: "POST", body: data }).then(function (r) {
-            return r.json().then(function (b) { if (!r.ok || !b.ok) throw new Error(b.error || "Something went wrong"); });
-          }).then(function () {
-            form.outerHTML = '<div class="opj-ok" role="status"><strong>Thank you, your application has been sent.</strong><br>' +
-              "We’ve received your resume for " + esc(j.title) + ". If your background is a fit, we’ll be in touch.</div>";
-          }).catch(function (x) {
-            err.textContent = x.message; btn.disabled = false; btn.textContent = "Submit application";
-          });
-        });
+          '<div class="opj-desc">' + md(j.description) + "</div>" + formHtml("Apply for this role", consent) + "</div>";
+        back();
+        wireForm(root.querySelector("form"), "/apply", { site: site, job_id: j.id, consent_version: consent.id || "" },
+          "<strong>Thank you, your application has been sent.</strong><br>We’ve received your resume for " + esc(j.title) +
+          ". If your background is a fit, we’ll be in touch.");
         root.scrollIntoView({ behavior: "smooth", block: "start" });
       }).catch(function () {
         root.innerHTML = '<p class="opj-muted">This role is no longer open.</p><button type="button" class="opj-back">← All open roles</button>';
-        root.querySelector(".opj-back").addEventListener("click", function () { location.hash = ""; });
+        back();
       });
+    }
+    function showGeneral() {
+      root.innerHTML = '<p class="opj-muted">Loading…</p>';
+      getJSON("/general?site=" + encodeURIComponent(site)).then(function (g) {
+        if (!g.open) throw new Error("closed");
+        var consent = g.consent || {};
+        var skillsField = '<div class="opj-field wide"><span id="opj-skills-label">Your skills <span class="opj-opt">(pick from the list, or type your own and press Enter)</span></span>' +
+          '<div class="opj-skills"><div class="opj-chips" aria-live="polite"></div>' +
+          '<div class="opj-combo"><input name="skill_search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="opj-skill-list" ' +
+          'aria-labelledby="opj-skills-label" placeholder="e.g. Epic Beaker, HL7, project management" autocomplete="off" maxlength="60">' +
+          '<ul class="opj-options" id="opj-skill-list" role="listbox" hidden></ul></div></div></div>';
+        root.innerHTML = '<div class="opj-detail"><button type="button" class="opj-back">← All open roles</button>' +
+          '<h2 class="opj-title">' + esc(g.title) + '</h2><div class="opj-desc"><p>' + esc(g.intro) + "</p></div>" +
+          formHtml("Send us your profile", consent, skillsField) + "</div>";
+        back();
+        var picker = skillPicker(root.querySelector(".opj-skills"), g.skills || []);
+        wireForm(root.querySelector("form"), "/apply-general", { site: site, consent_version: consent.id || "" },
+          "<strong>Thank you, your profile has been sent.</strong><br>We’ll be in touch when a role that fits your skills comes up.",
+          picker.values);
+        root.scrollIntoView({ behavior: "smooth", block: "start" });
+      }).catch(function () {
+        root.innerHTML = '<p class="opj-muted">We aren’t taking general applications right now.</p><button type="button" class="opj-back">← All open roles</button>';
+        back();
+      });
+    }
+    /* Search-as-you-type skill picker: choose from the list (grouped by category) or add your own. */
+    function skillPicker(box, catalog) {
+      var chosen = [], input = box.querySelector("input"), list = box.querySelector(".opj-options"),
+          chips = box.querySelector(".opj-chips"), active = -1, options = [];
+      var lower = function (s) { return s.toLowerCase(); };
+      function has(name) { return chosen.some(function (c) { return lower(c) === lower(name); }); }
+      function drawChips() {
+        chips.innerHTML = chosen.map(function (c, i) {
+          return '<span class="opj-chip">' + esc(c) + '<button type="button" data-i="' + i + '" aria-label="Remove ' + esc(c) + '">×</button></span>';
+        }).join("");
+      }
+      function add(name) {
+        name = String(name || "").replace(/\s+/g, " ").trim().slice(0, 60);
+        if (name.length < 2 || has(name) || chosen.length >= 40) return;
+        var match = catalog.filter(function (k) { return lower(k.name) === lower(name); })[0];
+        chosen.push(match ? match.name : name);
+        drawChips(); input.value = ""; close(); input.focus();
+      }
+      function close() { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; }
+      function open() {
+        var q = lower(input.value.trim()), words = q.split(/\s+/).filter(Boolean);
+        var hits = catalog.filter(function (k) {
+          var hay = lower(k.name + " " + k.category);
+          return !has(k.name) && words.every(function (w) { return hay.indexOf(w) >= 0; });
+        }).slice(0, q ? 12 : 60);
+        options = hits.map(function (k) { return k.name; });
+        var html = "", lastCat = null;
+        hits.forEach(function (k, i) {
+          if (k.category !== lastCat && !q) { html += '<li class="opj-cat" role="presentation">' + esc(k.category) + "</li>"; lastCat = k.category; }
+          html += '<li role="option" id="opj-opt-' + i + '" data-i="' + i + '">' + esc(k.name) + "</li>";
+        });
+        var typed = input.value.replace(/\s+/g, " ").trim();
+        if (typed.length >= 2 && !has(typed) && !hits.some(function (k) { return lower(k.name) === lower(typed); })) {
+          options.push(typed);
+          html += '<li role="option" class="opj-new" id="opj-opt-' + (options.length - 1) + '" data-i="' + (options.length - 1) + '">Add “' + esc(typed) + "”</li>";
+        }
+        list.innerHTML = html;
+        list.hidden = !html; input.setAttribute("aria-expanded", html ? "true" : "false"); active = -1;
+      }
+      function highlight(i) {
+        var els = list.querySelectorAll('[role="option"]');
+        els.forEach(function (el) { el.classList.remove("on"); });
+        if (els[i]) { els[i].classList.add("on"); els[i].scrollIntoView({ block: "nearest" }); input.setAttribute("aria-activedescendant", els[i].id); }
+        active = i;
+      }
+      input.addEventListener("focus", open);
+      input.addEventListener("input", open);
+      input.addEventListener("keydown", function (e) {
+        var n = list.querySelectorAll('[role="option"]').length;
+        if (e.key === "ArrowDown") { e.preventDefault(); if (list.hidden) open(); highlight(Math.min(n - 1, active + 1)); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); highlight(Math.max(0, active - 1)); }
+        else if (e.key === "Enter" || e.key === ",") {
+          e.preventDefault();
+          if (active >= 0 && options[active]) add(options[active]); else add(input.value);
+        } else if (e.key === "Escape") close();
+        else if (e.key === "Backspace" && !input.value && chosen.length) { chosen.pop(); drawChips(); }
+      });
+      list.addEventListener("mousedown", function (e) {
+        var li = e.target.closest('[role="option"]');
+        if (li) { e.preventDefault(); add(options[+li.getAttribute("data-i")]); }
+      });
+      input.addEventListener("blur", function () { setTimeout(close, 150); });
+      chips.addEventListener("click", function (e) {
+        var b = e.target.closest("button[data-i]");
+        if (b) { chosen.splice(+b.getAttribute("data-i"), 1); drawChips(); input.focus(); }
+      });
+      return { values: function () { if (input.value.trim()) add(input.value); return chosen.slice(); } };
     }
     function field(name, label, type, req, ac, ph, wide) {
       return '<label class="opj-field' + (wide ? " wide" : "") + '"><span>' + label + '</span><input name="' + name + '" type="' + type + '"' +

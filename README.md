@@ -74,5 +74,11 @@ Set up once (also shown in **Settings → Website**, with the exact code to past
    `supabase/functions/careers/index.ts`, Deploy. Then turn **off "Verify JWT"** for that function and save.
 3. Paste the two lines from Settings → Website into your careers page (or give Replit Agent the copied instructions).
 
+**General application:** the careers page also has an always-open "General application" card. People send their
+resume, contact details and skills without choosing a job; they appear under New applicants and are added as
+candidates. Skills come from a list (Settings → Website → Skills) that grows: a skill an applicant types joins the
+public list once 2 different applicants have used it (you can change that number, and list, hide or rename any skill).
+Needs `supabase/migrations/20261102000002_general_application.sql` and the updated careers function.
+
 To change the widget, edit `supabase/functions/careers/handler.ts` or `embed.js`, run `python build.py` in that
 folder, and paste the new `index.ts` into the function again.

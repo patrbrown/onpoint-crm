@@ -8,6 +8,7 @@ import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
 import type { Website } from "@/lib/types";
 import { useToast } from "../ui";
+import { GeneralApplication } from "./GeneralApplication";
 
 function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
@@ -102,6 +103,8 @@ If the site is React, don't put the <script> tag inside JSX: add it to index.htm
           </ul>
         )}
       </div>
+
+      {d.general && <GeneralApplication general={d.general} onSaved={w.reload} />}
 
       <div className="panel">
         <h2 style={{ marginBottom: 8 }}>Consent wording</h2>

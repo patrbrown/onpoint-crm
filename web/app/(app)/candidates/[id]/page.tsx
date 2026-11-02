@@ -30,13 +30,11 @@ export default function CandidatePage() {
   const [drawer, setDrawer] = useState<"none" | "edit" | "job" | "feedback" | "resume">("none");
   const [fbVersion, setFbVersion] = useState(0);
 
-  // Opening someone who applied on the website counts as seeing them.
-  const unseen = (apps.data ?? []).filter((a: any) => a.source === "portal" && !a.seen_at).map((a) => a.id).join(",");
+  // Opening someone who applied on the website (to a job or the general application) counts as seeing them.
   useEffect(() => {
-    if (!unseen) return;
-    Promise.all(unseen.split(",").map((aid) => api(t(tenant.id, `/applicants/${aid}/seen`), { method: "POST" })))
-      .then(applicantsChanged).catch(() => {});
-  }, [unseen, tenant.id]);
+    api<{ updated: number }>(t(tenant.id, `/candidates/${id}/seen-applications`), { method: "POST" })
+      .then((r) => { if (r.updated) applicantsChanged(); }).catch(() => {});
+  }, [id, tenant.id]);
 
   if (cand.error) return <div className="form-error">{cand.error}</div>;
   if (!cand.data) return <p className="muted">Loading…</p>;

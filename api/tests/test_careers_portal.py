@@ -111,3 +111,54 @@ def test_consent_versions(api_client):
     same = c.put(f"{A}/website/consent", json={"body": new["body"]}).json()
     assert same["id"] == new["id"]                     # unchanged text → no new version
     assert c.put(f"{A}/website/consent", json={"body": "too short"}).status_code == 422
+
+
+def apply_general(db, email, skills, first="Kim", ip_hash="g1", path="x/applications/g/cv.pdf"):
+    arr = "array[" + ",".join("'" + s.replace("'", "''") + "'" for s in skills) + "]::text[]"
+    return json.loads(sql(db, f"""select public.portal_apply_general('onpoint', '{first}', 'Lee', '{email}', '6045550111', '',
+        {arr}, 'cv.pdf', '{path}', 'application/pdf', 10, null, '203.0.113.7', '{ip_hash}', 'ua')"""))
+
+
+def test_general_application_and_growing_skills_list(api_client, database):
+    c = api_client
+    general = json.loads(sql(database, "select public.portal_general('onpoint')"))
+    assert general["title"] == "General application" and any(k["name"] == "Epic Beaker" for k in general["skills"])
+
+    r = apply_general(database, "kim.lee@example.com", ["epic beaker", "Epic Beaker", "Galaxy brain synergy",
+                                                         "<script>", "http://spam.example", "Python scripting"], ip_hash="gA")
+    assert r["ok"]
+    new = [a for a in c.get(f"{A}/applicants", params={"only_new": True}).json() if a["kind"] == "general"]
+    assert len(new) == 1 and new[0]["job_title"] is None
+    assert new[0]["skills"] == ["Epic Beaker", "Galaxy brain synergy", "Python scripting"]   # tidied, list spelling
+    cand = c.get(f"{A}/candidates/{new[0]['candidate_id']}").json()
+    assert cand["source"] == "portal" and "Epic Beaker" in cand["skills"]
+
+    skills = {k["name"]: k for k in c.get(f"{A}/portal-skills").json()}
+    assert skills["Python scripting"]["status"] == "pending" and skills["Python scripting"]["uses"] == 1
+    # The same person sending again doesn't count twice; a second person does, and it goes on the list.
+    apply_general(database, "KIM.lee@example.com", ["Python scripting"], ip_hash="gA")
+    assert {k["name"]: k for k in c.get(f"{A}/portal-skills").json()}["Python scripting"]["uses"] == 1
+    apply_general(database, "jo.ng@example.com", ["python SCRIPTING"], first="Jo", ip_hash="gB")
+    skills = {k["name"]: k for k in c.get(f"{A}/portal-skills").json()}
+    assert skills["Python scripting"]["status"] == "listed" and skills["Python scripting"]["uses"] == 2
+    assert any(k["name"] == "Python scripting" for k in json.loads(sql(database, "select public.portal_general('onpoint')"))["skills"])
+    assert len([a for a in c.get(f"{A}/applicants").json() if a["kind"] == "general"]) == 2   # one row per person
+
+    # Hide a skill: it stays on candidates but leaves the website list.
+    c.patch(f"{A}/portal-skills/{skills['Galaxy brain synergy']['id']}", json={"status": "hidden"})
+    assert all(k["name"] != "Galaxy brain synergy" for k in json.loads(sql(database, "select public.portal_general('onpoint')"))["skills"])
+    added = c.post(f"{A}/portal-skills", json={"name": "  Epic   Phoenix ", "category": "Epic"}).json()
+    assert added["name"] == "Epic Phoenix" and added["status"] == "listed"
+    assert c.post(f"{A}/portal-skills", json={"name": "http://x.com"}).status_code == 422
+
+    # Seen: one candidate open marks everything they sent; count includes both kinds.
+    before = c.get(f"{A}/applicants/count").json()["new"]
+    assert c.post(f"{A}/candidates/{cand['id']}/seen-applications").json()["updated"] == 1
+    assert c.get(f"{A}/applicants/count").json()["new"] == before - 1
+
+    # Turn the general application off: the website gets nothing and can't submit.
+    c.patch(f"{A}/website/general", json={"enabled": False})
+    assert sql(database, "select public.portal_general('onpoint') is null") == "t"
+    assert apply_general(database, "late@example.com", [], ip_hash="gC")["error"] == "closed"
+    w = c.patch(f"{A}/website/general", json={"enabled": True, "title": "Join our talent network"}).json()
+    assert w["enabled"] and w["title"] == "Join our talent network"
