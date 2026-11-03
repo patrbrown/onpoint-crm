@@ -224,34 +224,62 @@ async def download_attachment(tenant_id: UUID, attachment_id: UUID, user: Curren
 
 # ── Outlook connection ──────────────────────────────────────────────────────
 
+def _signin_key(tenant_id: UUID, user_id: UUID) -> str:
+    return f"{tenant_id}:{user_id}"   # each person signs in to their own mailbox
+
+
 @router.get("/mail")
 async def mail_status(tenant_id: UUID, user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Mailboxes you can see: your own and ones shared with you (with their email), plus, for workspace admins,
+    that other people's mailboxes exist (address and status only; their email stays private)."""
     async with user_tx(user.id) as conn:
         accounts = await conn.fetch(
-            """select id, mailbox_address, is_enabled, last_sync_at, last_error, created_at from public.mail_accounts
-               where tenant_id = $1 order by created_at""", tenant_id)
+            """select ma.id, ma.mailbox_address, ma.is_enabled, ma.last_sync_at, ma.last_error, ma.created_at,
+                      ma.user_id = $2 as is_mine, public.can_read_mailbox(ma.id) as can_read,
+                      coalesce(tm.full_name, p.full_name, p.email::text) as owner_name
+               from public.mail_accounts ma
+               left join public.profiles p on p.id = ma.user_id
+               left join public.team_members tm on tm.tenant_id = ma.tenant_id and tm.user_id = ma.user_id
+               where ma.tenant_id = $1 order by (ma.user_id = $2) desc, ma.created_at""", tenant_id, user.id)
+        out = []
+        for a in accounts:
+            d = dict(a)
+            if d["is_mine"]:
+                d["shared_with"] = [dict(r) for r in await conn.fetch(
+                    """select x.user_id, coalesce(tm.full_name, p.full_name, p.email::text) as name, p.email
+                       from public.mailbox_access x join public.profiles p on p.id = x.user_id
+                       left join public.team_members tm on tm.tenant_id = x.tenant_id and tm.user_id = x.user_id
+                       where x.mail_account_id = $1 order by name""", d["id"])]
+            out.append(d)
     from ..config import get_settings
     s = get_settings()
-    pending = graph.pending_signin(str(tenant_id))
+    pending = graph.pending_signin(_signin_key(tenant_id, user.id))
     return {
         "configured": bool(s.ms_client_id and s.ms_tenant_id),
-        "accounts": [dict(a) for a in accounts],
+        "accounts": out,
         "signin": {k: pending[k] for k in ("user_code", "verification_uri", "status", "error", "expires_at")
                    if k in pending} if pending else None,
     }
 
 
 async def _finish_signin(tenant_id: UUID, user_id: UUID, mailbox: graph.GraphMailbox, flow: dict) -> None:
-    key = str(tenant_id)
+    key = _signin_key(tenant_id, user_id)
     try:
         await asyncio.to_thread(mailbox.finish_device_flow, flow)
         me = await mailbox.me()
         address = (me.get("mail") or me.get("userPrincipalName") or "").lower()
         async with service_tx() as conn:
+            existing = await conn.fetchrow("select id, user_id from public.mail_accounts where tenant_id = $1 "
+                                           "and mailbox_address = $2", tenant_id, address)
+            if existing and existing["user_id"] and existing["user_id"] != user_id:
+                # Someone else already connected this mailbox; it stays theirs (they decide who sees it).
+                raise RuntimeError(f"{address} is already connected by someone else in this workspace. "
+                                   "Ask them to share it with you.")
             account_id = await conn.fetchval(
                 """insert into public.mail_accounts (tenant_id, user_id, provider, mailbox_address, auth_mode, is_enabled)
                    values ($1,$2,'microsoft',$3,'delegated',true)
-                   on conflict (tenant_id, mailbox_address) do update set is_enabled = true, last_error = null
+                   on conflict (tenant_id, mailbox_address) do update set is_enabled = true, last_error = null,
+                       user_id = coalesce(public.mail_accounts.user_id, excluded.user_id)
                    returning id""", tenant_id, user_id, address)
         mailbox.rename(str(account_id))
         graph.set_pending(key, {**(graph.pending_signin(key) or {}), "status": "connected", "mailbox": address})
@@ -262,27 +290,77 @@ async def _finish_signin(tenant_id: UUID, user_id: UUID, mailbox: graph.GraphMai
 
 @router.post("/mail/connect")
 async def connect_outlook(tenant_id: UUID, user: CurrentUser = Depends(get_current_user)) -> dict:
-    """Start Microsoft sign-in. Returns a code to enter at the Microsoft page; the CRM finishes once you sign in."""
+    """Start Microsoft sign-in for your own mailbox. Returns a code to enter at the Microsoft page; the CRM finishes
+    once you sign in. The mailbox is private to you until you share it."""
     async with user_tx(user.id) as conn:
-        if not await conn.fetchval("select public.is_tenant_admin($1)", tenant_id):
-            raise HTTPException(403, "Only workspace owners and admins can connect a mailbox")
+        if not await conn.fetchval("select public.is_member_strict($1)", tenant_id):
+            raise HTTPException(403, "Only people in this workspace can connect a mailbox to it")
     try:
-        mailbox = graph.GraphMailbox(f"pending-{tenant_id}")
+        mailbox = graph.GraphMailbox(f"pending-{tenant_id}-{user.id}")
         flow = await asyncio.to_thread(mailbox.start_device_flow)
     except graph.GraphAuthError as exc:
         raise HTTPException(503, str(exc)) from exc
-    graph.set_pending(str(tenant_id), {"user_code": flow["user_code"], "verification_uri": flow["verification_uri"],
-                                       "status": "waiting", "expires_at": flow.get("expires_at")})
+    graph.set_pending(_signin_key(tenant_id, user.id), {
+        "user_code": flow["user_code"], "verification_uri": flow["verification_uri"],
+        "status": "waiting", "expires_at": flow.get("expires_at")})
     asyncio.create_task(_finish_signin(tenant_id, user.id, mailbox, flow))
     return {"user_code": flow["user_code"], "verification_uri": flow["verification_uri"]}
+
+
+async def _readable(conn, tenant_id: UUID, account_id: UUID) -> None:
+    if not await conn.fetchval("select exists(select 1 from public.mail_accounts where tenant_id = $1 and id = $2 "
+                               "and public.can_read_mailbox(id))", tenant_id, account_id):
+        raise HTTPException(404, "mailbox not found")
+
+
+# ── Who can see a mailbox ───────────────────────────────────────────────────
+
+class ShareBody(_Base):
+    user_id: UUID
+
+
+@router.get("/mail/people")
+async def people(tenant_id: UUID, user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    """People in this workspace who have a login (the only ones a mailbox can be shared with)."""
+    async with user_tx(user.id) as conn:
+        rows = await conn.fetch(
+            """select m.user_id, coalesce(tm.full_name, p.full_name, p.email::text) as name, p.email, m.role
+               from public.memberships m join public.profiles p on p.id = m.user_id
+               left join public.team_members tm on tm.tenant_id = m.tenant_id and tm.user_id = m.user_id
+               where m.tenant_id = $1 and m.user_id <> $2 order by name""", tenant_id, user.id)
+    return [dict(r) for r in rows]
+
+
+@router.post("/mail/accounts/{account_id}/access")
+async def share(tenant_id: UUID, account_id: UUID, body: ShareBody, user: CurrentUser = Depends(get_current_user)) -> dict:
+    async with user_tx(user.id) as conn:
+        if not await conn.fetchval("select exists(select 1 from public.mail_accounts where tenant_id = $1 and id = $2 "
+                                   "and user_id = $3)", tenant_id, account_id, user.id):
+            raise HTTPException(403, "Only the person who connected this mailbox can change who sees it")
+        if not await conn.fetchval("select exists(select 1 from public.memberships where tenant_id = $1 and user_id = $2)",
+                                   tenant_id, body.user_id):
+            raise HTTPException(422, "That person isn't in this workspace (or has no login yet)")
+        await conn.execute(
+            """insert into public.mailbox_access (tenant_id, mail_account_id, user_id, granted_by) values ($1,$2,$3,$4)
+               on conflict do nothing""", tenant_id, account_id, body.user_id, user.id)
+    return {"shared_with": str(body.user_id)}
+
+
+@router.delete("/mail/accounts/{account_id}/access/{user_id}")
+async def unshare(tenant_id: UUID, account_id: UUID, user_id: UUID, user: CurrentUser = Depends(get_current_user)) -> dict:
+    async with user_tx(user.id) as conn:
+        if not await conn.fetchval("select exists(select 1 from public.mail_accounts where tenant_id = $1 and id = $2 "
+                                   "and user_id = $3)", tenant_id, account_id, user.id):
+            raise HTTPException(403, "Only the person who connected this mailbox can change who sees it")
+        await conn.execute("delete from public.mailbox_access where mail_account_id = $1 and user_id = $2",
+                           account_id, user_id)
+    return {"removed": str(user_id)}
 
 
 @router.post("/mail/accounts/{account_id}/scan")
 async def scan(tenant_id: UUID, account_id: UUID, user: CurrentUser = Depends(get_current_user)) -> dict:
     async with user_tx(user.id) as conn:
-        if not await conn.fetchval("select 1 from public.mail_accounts where tenant_id = $1 and id = $2",
-                                   tenant_id, account_id):
-            raise HTTPException(404, "mailbox not found")
+        await _readable(conn, tenant_id, account_id)
     try:
         r = await worker.scan_now(account_id)
     except graph.GraphAuthError as exc:
@@ -296,7 +374,7 @@ async def scan(tenant_id: UUID, account_id: UUID, user: CurrentUser = Depends(ge
 async def toggle_account(tenant_id: UUID, account_id: UUID, enabled: bool, user: CurrentUser = Depends(get_current_user)) -> dict:
     async with user_tx(user.id) as conn:
         r = await conn.fetchrow("update public.mail_accounts set is_enabled = $3 where tenant_id = $1 and id = $2 "
-                                "returning id, is_enabled", tenant_id, account_id, enabled)
+                                "and user_id = $4 returning id, is_enabled", tenant_id, account_id, enabled, user.id)
     if r is None:
-        raise HTTPException(404, "mailbox not found")
+        raise HTTPException(403, "Only the person who connected this mailbox can pause or resume it")
     return dict(r)

@@ -83,3 +83,13 @@ Job application forms have the same skills picker. Needs `supabase/migrations/20
 
 To change the widget, edit `supabase/functions/careers/handler.ts` or `embed.js`, run `python build.py` in that
 folder, and paste the new `index.ts` into the function again.
+
+## Private inboxes
+
+Each person connects their own Outlook (Email inbox, or Settings → Email inbox). A mailbox's email, attachments and
+review items are visible only to the person who connected it and anyone they share it with (Settings → Email inbox
+→ "Share with someone"). People without access don't see the Email inbox tab. Workspace admins can see which
+mailboxes are connected but not their email, and the platform owner's cross-workspace access doesn't include email.
+This is enforced in the database (Row Level Security), not only in the screens. Records you save from email (jobs,
+candidates, feedback) become normal CRM records everyone in the workspace can see.
+Needs `supabase/migrations/20261103000001_private_inbox.sql`.

@@ -65,8 +65,9 @@ def run_scan(db, tmp_path, messages, responses, *, mode="review"):
             await conn.execute("update public.tenant_settings set inbox_mode = $2, auto_approve_threshold = 0.9 "
                                "where tenant_id = $1", UUID(TENANT_A), mode)
             acct = await conn.fetchrow(
-                """insert into public.mail_accounts (tenant_id, mailbox_address) values ($1, 'patty@onpoint.example')
-                   on conflict (tenant_id, mailbox_address) do update set is_enabled = true returning *""", UUID(TENANT_A))
+                """insert into public.mail_accounts (tenant_id, user_id, mailbox_address) values ($1, $2, 'patty@onpoint.example')
+                   on conflict (tenant_id, mailbox_address) do update set is_enabled = true returning *""",
+                UUID(TENANT_A), UUID(USER_A))   # connected by Patty, so it's her private inbox
             llm = FakeProvider(responses)
             r = await scan_account(conn, LocalStorage(str(tmp_path / "storage")), llm, FakeMailbox(messages), acct)
             return r, llm

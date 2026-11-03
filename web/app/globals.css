@@ -359,3 +359,8 @@ tr.unseen td:first-child a { font-weight: 700; }
 .s-skill-pending { background: var(--amber-wash); color: #8a5d0f; }
 .s-skill-hidden { background: var(--line-2); color: var(--ink-3); }
 .nowrap { white-space: nowrap; }
+.sharing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 2px 0 10px 22px; font-size: 13px; }
+.share-add { display: inline-flex; align-items: center; gap: 8px; }
+.share-add select { width: auto; min-width: 180px; padding: 3px 6px; }
+.others { border-top: 1px solid var(--line-2); margin-top: 8px; padding-top: 8px; font-size: 13px; }
+.others p { margin: 4px 0; }

@@ -6,7 +6,7 @@ import { api } from "./api";
 import { getSupabase } from "./supabase";
 import type { Me, Tenant } from "./types";
 
-type Session = { me: Me; tenant: Tenant; setTenant: (id: string) => void; signOut: () => Promise<void> };
+type Session = { me: Me; tenant: Tenant; setTenant: (id: string) => void; signOut: () => Promise<void>; refresh: () => Promise<void> };
 const Ctx = createContext<Session | null>(null);
 
 export function useSession(): Session {
@@ -50,6 +50,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     try { localStorage.setItem("tenant", id); } catch {}
     router.push("/jobs");
   };
+  // Re-read who I am (e.g. after connecting a mailbox, so the Inbox tab appears).
+  const refresh = async () => { try { setMe(await api<Me>("/me")); } catch { /* keep what we have */ } };
   const signOut = async () => {
     await getSupabase()?.auth.signOut();
     router.replace("/login");
@@ -65,5 +67,5 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return <div className="center-note"><h1>No workspace yet</h1>
       <p>Your login works, but it isn’t linked to an agency workspace. Run the setup SQL in the README, then reload.</p></div>;
 
-  return <Ctx.Provider value={{ me, tenant, setTenant, signOut }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ me, tenant, setTenant, signOut, refresh }}>{children}</Ctx.Provider>;
 }

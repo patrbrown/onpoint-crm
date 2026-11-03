@@ -1,4 +1,4 @@
-export type Tenant = { id: string; name: string; portal_slug: string; role: string; logo_url?: string | null };
+export type Tenant = { id: string; name: string; portal_slug: string; role: string; logo_url?: string | null; inbox_access?: boolean };
 export type Me = { profile: { id: string; email: string; full_name: string | null; is_platform_admin: boolean }; tenants: Tenant[] };
 
 export type Client = {

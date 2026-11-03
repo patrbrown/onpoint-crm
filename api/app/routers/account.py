@@ -22,7 +22,7 @@ async def me(user: CurrentUser = Depends(get_current_user)) -> dict:
                                       user.id)
         tenants = await conn.fetch(
             """select t.id, t.name, t.portal_slug, t.logo_url, t.brand_primary, t.plan,
-                      coalesce(m.role, 'platform_admin') as role
+                      coalesce(m.role, 'platform_admin') as role, public.has_inbox_access(t.id) as inbox_access
                from public.tenants t
                left join public.memberships m on m.tenant_id = t.id and m.user_id = $1
                order by (m.role is null), t.name""", user.id)

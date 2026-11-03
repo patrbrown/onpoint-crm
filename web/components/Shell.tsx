@@ -32,7 +32,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </select>
         )}
         <ul>
-          {NAV.map((n) => (
+          {NAV.filter((n) => n.href !== "/inbox" || tenant.inbox_access).map((n) => (
             <li key={n.href}>
               <Link href={n.href} className={path.startsWith(n.href) ? "active" : ""}
                     aria-current={path.startsWith(n.href) ? "page" : undefined}>

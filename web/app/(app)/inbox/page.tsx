@@ -34,10 +34,19 @@ export default function InboxPage() {
   const pendingCount = list.data?.counts.pending ?? 0;
   const doneCount = ["approved", "auto_approved", "rejected"].reduce((n, k) => n + (list.data?.counts[k] ?? 0), 0);
 
+  if (!tenant.inbox_access) return (
+    <>
+      <div className="page-head"><div><h1>Email inbox</h1>
+        <p>Email is private: you only see mailboxes you connected yourself or that someone has shared with you.</p></div></div>
+      <OutlookConnection onScanned={list.reload} />
+    </>
+  );
+
   return (
     <>
       <div className="page-head"><div><h1>Email inbox</h1>
-        <p>Job requisitions, resumes and interview feedback the assistant found in your Outlook.</p></div></div>
+        <p>Job requisitions, resumes and interview feedback the assistant found in your Outlook. Only you and people you share
+          your mailbox with can see this.</p></div></div>
       <OutlookConnection onScanned={list.reload} />
 
       <div className="tabs" role="tablist" style={{ marginTop: 18 }}>

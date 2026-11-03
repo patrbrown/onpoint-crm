@@ -10,6 +10,7 @@ import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
 import type { AiStatus, Pipeline, Settings } from "@/lib/types";
 import { InboxSettings } from "@/components/settings/InboxSettings";
+import { OutlookConnection } from "@/components/OutlookConnection";
 import { JevSettings } from "@/components/settings/JevSettings";
 import { ModelSettings } from "@/components/settings/ModelSettings";
 
@@ -39,6 +40,14 @@ export default function SettingsPage() {
       {!["pipelines", "users", "website"].includes(tab) && !ready && <p className="muted">{settings.error || status.error || "Loading…"}</p>}
       {ready && tab === "models" && <ModelSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
       {ready && tab === "sorting" && <JevSettings settings={settings.data!} status={status.data!} onSaved={settings.setData} />}
+      {tab === "inbox" && (
+        <div style={{ marginBottom: 14 }}>
+          <h2 style={{ margin: "4px 0 8px" }}>Mailboxes</h2>
+          <p className="muted" style={{ marginBottom: 8 }}>Each person connects their own Outlook. A mailbox’s email is private to the person who
+            connected it and anyone they share it with. Workspace admins can see which mailboxes are connected, but not their email.</p>
+          <OutlookConnection showOthers />
+        </div>
+      )}
       {ready && tab === "inbox" && <InboxSettings settings={settings.data!} onSaved={settings.setData} />}
     </>
   );
