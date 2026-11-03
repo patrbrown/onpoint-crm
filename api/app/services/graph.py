@@ -202,3 +202,46 @@ def set_pending(tenant_id: str, state: dict[str, Any] | None) -> None:
             _pending.pop(tenant_id, None)
         else:
             _pending[tenant_id] = state
+
+
+# ── Keeping sign-ins across restarts (hosted) ─────────────────────────────────
+# The token cache lives in a file while the CRM runs. When TOKEN_ENCRYPTION_KEY is set, it's also saved, encrypted,
+# in the database, and restored from there when the file is missing (e.g. after a hosted server restarts).
+
+def _fernet():
+    key = get_settings().token_encryption_key
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+    return Fernet(key.encode())
+
+
+def _cache_file(cache_key: str) -> Path:
+    return Path(get_settings().ms_token_cache_path).parent / f"msal_{cache_key}.json"
+
+
+async def restore_cache(cache_key: str) -> None:
+    f = _fernet()
+    path = _cache_file(cache_key)
+    if f is None or path.exists():
+        return
+    from ..db import service_tx
+    async with service_tx() as conn:
+        blob = await conn.fetchval("select ciphertext from public.mail_tokens where cache_key = $1", cache_key)
+    if blob:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f.decrypt(blob.encode()).decode())
+
+
+async def backup_cache(cache_key: str) -> None:
+    f = _fernet()
+    path = _cache_file(cache_key)
+    if f is None or not path.exists():
+        return
+    from ..db import service_tx
+    blob = f.encrypt(path.read_bytes()).decode()
+    async with service_tx() as conn:
+        await conn.execute(
+            """insert into public.mail_tokens (cache_key, ciphertext) values ($1, $2)
+               on conflict (cache_key) do update set ciphertext = excluded.ciphertext, updated_at = now()""",
+            cache_key, blob)

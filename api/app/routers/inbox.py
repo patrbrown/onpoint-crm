@@ -27,6 +27,9 @@ async def _fetch_files(conn, tenant_id: UUID, email_id: UUID) -> None:
     reached, the email is still re-read from the text that was kept."""
     try:
         async with conn.transaction():
+            acct = await conn.fetchval("select mail_account_id from public.email_messages where id = $1", email_id)
+            if acct:
+                await graph.restore_cache(str(acct))
             await fetch_missing_files(conn, get_storage(), tenant_id, email_id, mailbox_factory=mailbox_factory())
     except Exception as exc:  # noqa: BLE001
         log.warning("couldn't fetch attachments for email %s: %s", email_id, exc)
@@ -282,6 +285,7 @@ async def _finish_signin(tenant_id: UUID, user_id: UUID, mailbox: graph.GraphMai
                        user_id = coalesce(public.mail_accounts.user_id, excluded.user_id)
                    returning id""", tenant_id, user_id, address)
         mailbox.rename(str(account_id))
+        await graph.backup_cache(str(account_id))
         graph.set_pending(key, {**(graph.pending_signin(key) or {}), "status": "connected", "mailbox": address})
     except Exception as exc:  # noqa: BLE001
         log.warning("Outlook sign-in failed: %s", exc)

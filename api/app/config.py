@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     ms_tenant_id: str = ""
     ms_client_id: str = ""
     ms_token_cache_path: str = "./.secrets/msal_cache.json"
+    # Hosted: keep Outlook sign-ins in the database, encrypted with this key (make one with:
+    # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    token_encryption_key: str = ""
+    # Safety: "production" refuses to start if DEV_USER_ID is set (that would let anyone in without signing in).
+    environment: str = "development"
     email_worker_enabled: bool = True   # set false in tests or to pause the agent
 
     portal_worker_enabled: bool = True  # read resumes that arrive from the website careers page

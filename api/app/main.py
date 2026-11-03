@@ -14,6 +14,9 @@ from .routers import account, ai_settings, applicants, crm, inbox, job_descripti
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    s = get_settings()
+    if s.environment == "production" and s.dev_user_id:
+        raise RuntimeError("DEV_USER_ID must not be set in production: it lets anyone use the CRM without signing in")
     await get_pool()
     await uploads.mark_interrupted_imports()
     worker.start()

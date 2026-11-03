@@ -13,7 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from ..config import get_settings
 from ..db import service_tx
 from ..llm.tenant import llm_for_task
-from ..services.graph import GraphAuthError, GraphMailbox
+from ..services.graph import GraphAuthError, GraphMailbox, backup_cache, restore_cache
 from ..services.storage import get_storage
 from .email_agent import ScanResult, scan_account
 
@@ -33,6 +33,7 @@ async def scan_now(account_id: UUID) -> ScanResult:
             account = await conn.fetchrow("select * from public.mail_accounts where id = $1", account_id)
             llm = await llm_for_task(conn, account["tenant_id"], "email_extraction")
             triage_llm = await llm_for_task(conn, account["tenant_id"], "email_triage")
+        await restore_cache(str(account_id))
         mailbox = GraphMailbox(str(account_id))
         # Per-message transactions live inside scan_account; this outer connection is only for the scan itself.
         from ..db import get_pool
@@ -43,6 +44,8 @@ async def scan_now(account_id: UUID) -> ScanResult:
             except GraphAuthError as exc:
                 await conn.execute("update public.mail_accounts set last_error = $2 where id = $1", account_id, str(exc))
                 raise
+            finally:
+                await backup_cache(str(account_id))   # refreshed tokens survive a restart
 
 
 async def tick() -> None:

@@ -1,0 +1,45 @@
+# Render Blueprint: the CRM's back end (api folder) as an always-on web service.
+# In Render: New → Blueprint → pick this GitHub repo. It asks for each value marked sync: false.
+services:
+  - type: web
+    name: onpoint-crm-api
+    runtime: docker
+    rootDir: api
+    dockerfilePath: ./Dockerfile
+    plan: starter          # always on, so the email assistant keeps checking Outlook (the free plan sleeps)
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true       # every push to GitHub updates it
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: EMAIL_WORKER_ENABLED
+        value: "true"
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: TOKEN_ENCRYPTION_KEY
+        generateValue: true          # Render makes one; keeps Outlook sign-ins encrypted in the database
+      # From your .env (copy the same values):
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET      # leave blank if your project uses the newer signing keys
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY       # optional
+        sync: false
+      - key: TYPESAFE_API_KEY         # optional (Jev email sorting)
+        sync: false
+      - key: MS_TENANT_ID
+        sync: false
+      - key: MS_CLIENT_ID
+        sync: false
+      # Your Netlify address, e.g. https://onpoint-crm.netlify.app (both the same):
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_URL
+        sync: false

@@ -1,0 +1,13 @@
+# Netlify: hosts the CRM's screens (the web folder). The back end (api folder) runs on Render: see render.yaml.
+# Set these in Netlify → Site configuration → Environment variables:
+#   NEXT_PUBLIC_API_URL            the Render address of the back end, e.g. https://onpoint-crm-api.onrender.com
+#   NEXT_PUBLIC_SUPABASE_URL       same as SUPABASE_URL in your .env
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY  same as SUPABASE_ANON_KEY in your .env (the publishable key)
+[build]
+  base = "web"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
