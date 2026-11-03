@@ -93,3 +93,17 @@ mailboxes are connected but not their email, and the platform owner's cross-work
 This is enforced in the database (Row Level Security), not only in the screens. Records you save from email (jobs,
 candidates, feedback) become normal CRM records everyone in the workspace can see.
 Needs `supabase/migrations/20261103000001_private_inbox.sql`.
+
+## Inviting people
+
+Settings → Users → **Invite someone**: enter their email, name and role (Recruiter, Admin or Owner). The CRM creates
+their login in Supabase and gives you a personal sign-in link to send them (Copy link, or Open an email). Opening it
+takes them to a page where they choose a password. From the same list you can change roles, send a new sign-in link
+(links expire), or remove someone's access.
+
+- Supabase's built-in email only sends to members of your Supabase organization (about 2 an hour), so by default the
+  CRM gives you the link instead. To have invites emailed automatically, set up your own SMTP in Supabase
+  (Authentication → Emails → SMTP settings) and tick "Have Supabase email the invite".
+- In Supabase → Authentication → URL Configuration, add your CRM address followed by `/welcome` (e.g.
+  `http://localhost:3000/welcome`) to the Redirect URLs. Set `APP_URL` in `.env` to the CRM's address.
+- The CRM must be reachable by the people you invite. While it runs only on your PC (localhost), only you can open it.

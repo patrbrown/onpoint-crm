@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     bulk_import_concurrency: int = 3    # resumes read in parallel during a bulk import
 
     cors_origins: str = "http://localhost:3000"
+    app_url: str = "http://localhost:3000"   # where invited people sign in (used in invite links)
 
 
 @lru_cache

@@ -364,3 +364,6 @@ tr.unseen td:first-child a { font-weight: 700; }
 .share-add select { width: auto; min-width: 180px; padding: 3px 6px; }
 .others { border-top: 1px solid var(--line-2); margin-top: 8px; padding-top: 8px; font-size: 13px; }
 .others p { margin: 4px 0; }
+.invite-result { background: var(--teal-wash); border-radius: var(--radius-s); padding: 12px 14px; margin-bottom: 14px; }
+.invite-result p { margin: 0 0 6px; }
+.invite-result .snippet { margin: 6px 0 10px; }

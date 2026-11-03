@@ -6,6 +6,7 @@ import { useData } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
 import type { Member } from "@/lib/types";
 import { Field, useToast } from "../ui";
+import { InvitePrefill, Logins } from "./Logins";
 
 const ROLE: Record<string, string> = { owner: "Owner", admin: "Admin", recruiter: "Recruiter", viewer: "Viewer" };
 
@@ -18,6 +19,7 @@ export function TeamSettings() {
   const admin = ["owner", "admin", "platform_admin"].includes(tenant.role);
   const [f, setF] = useState({ full_name: "", email: "", title: "" });
   const [error, setError] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<InvitePrefill>(null);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -42,12 +44,14 @@ export function TeamSettings() {
   };
 
   return (
+    <>
+    <Logins prefill={prefill} onChanged={team.reload} />
     <div className="panel">
-      <div className="panel-head"><h2>Users</h2>
+      <div className="panel-head"><h2>Everyone on the team</h2>
         <label className="check"><input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} /> Show removed</label>
       </div>
-      <p className="muted">Everyone at the agency you can tag as the person who uploaded a resume. Notes show who wrote them.
-        People who sign in are added here automatically; people you add by hand can be tagged but don’t get a login.</p>
+      <p className="muted">Everyone you can tag as the person who uploaded a resume (notes show who wrote them). People with a login appear
+        here automatically. You can also add people without a login, just for tagging, and invite them later.</p>
       <div className="table-wrap" style={{ margin: "12px 0" }}>
         <table className="team">
           <thead><tr><th>Name</th><th>Email</th><th>Title</th><th>Sign-in</th><th /></tr></thead>
@@ -57,8 +61,11 @@ export function TeamSettings() {
                 <td>{field(m, "full_name", "Name")}{m.is_me && <span className="sub">You</span>}</td>
                 <td>{field(m, "email", "Email")}</td>
                 <td>{field(m, "title", "Title")}</td>
-                <td>{m.has_login ? (ROLE[m.role ?? ""] ?? "Can sign in") : <span className="muted">No login</span>}</td>
-                <td className="num">{admin && !m.is_me && (m.is_active
+                <td>{m.has_login ? (ROLE[m.role ?? ""] ?? "Can sign in") : <span className="muted">No login
+                  {admin && m.is_active && m.email && <> · <button className="link-btn" onClick={() => {
+                    setPrefill({ email: m.email!, full_name: m.full_name });
+                    document.getElementById("invite")?.scrollIntoView({ behavior: "smooth" }); }}>Invite</button></>}</span>}</td>
+                <td className="num">{admin && !m.is_me && !m.has_login && (m.is_active
                   ? <button className="link-btn danger-text" onClick={() => confirm(`Remove ${m.full_name}? Their past uploads and notes keep their name.`) && save(m, { is_active: false })}>Remove</button>
                   : <button className="link-btn" onClick={() => save(m, { is_active: true })}>Restore</button>)}</td>
               </tr>
@@ -79,5 +86,6 @@ export function TeamSettings() {
         </form>
       )}
     </div>
+    </>
   );
 }

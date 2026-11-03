@@ -27,7 +27,7 @@ export default function Login() {
 
   async function reset() {
     if (!sb || !email) { setError("Enter your email first, then choose “Forgot password”."); return; }
-    await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + "/login" });
+    await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + "/welcome" });
     setError(null);
     alert("If that email has an account, a reset link is on its way.");
   }
