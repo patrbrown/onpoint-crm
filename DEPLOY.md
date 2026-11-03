@@ -3,7 +3,7 @@
 | Part | Where | Cost |
 |---|---|---|
 | Screens (web folder) | Netlify | Free plan is fine for demos |
-| Back end (api folder): API, email assistant, imports | Render, Free plan, kept awake by a free uptime monitor (step 6) | free. For clients later, switch to Starter (about US$7/month): faster, and never restarted at random |
+| Back end (api folder): API, email assistant, imports | Render, Free plan, kept awake by a free uptime monitor (step 6) | free. For clients later, switch to Starter (about US$7/month): faster, and meant for production use |
 | Database and files | Supabase (as now) | unchanged |
 
 Your keys go into Render and Netlify's settings pages. They are never put in GitHub.
