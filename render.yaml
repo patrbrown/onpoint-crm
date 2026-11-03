@@ -6,7 +6,8 @@ services:
     runtime: docker
     rootDir: api
     dockerfilePath: ./Dockerfile
-    plan: starter          # always on, so the email assistant keeps checking Outlook (the free plan sleeps)
+    plan: free             # free: sleeps after 15 min without visits; keep it awake with a free uptime monitor
+                           # pinging /health every 10 min (DEPLOY.md). Change to "starter" (~US$7/mo) for always-on.
     region: oregon
     healthCheckPath: /health
     autoDeploy: true       # every push to GitHub updates it

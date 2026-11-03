@@ -3,7 +3,7 @@
 | Part | Where | Cost |
 |---|---|---|
 | Screens (web folder) | Netlify | Free plan is fine for demos |
-| Back end (api folder): API, email assistant, imports | Render, Starter plan | about US$7/month; the free plan sleeps after 15 minutes idle, which stops the email assistant and makes the first click take about a minute |
+| Back end (api folder): API, email assistant, imports | Render, Free plan, kept awake by a free uptime monitor (step 6) | free. For clients later, switch to Starter (about US$7/month): faster, and never restarted at random |
 | Database and files | Supabase (as now) | unchanged |
 
 Your keys go into Render and Netlify's settings pages. They are never put in GitHub.
@@ -56,6 +56,20 @@ Open the Netlify address and sign in with your usual email and password. Then:
 
 When the hosted version works, stop the copy on your PC (`docker compose down`) or set
 `EMAIL_WORKER_ENABLED=false` in your PC's `.env`, so only one copy checks your Outlook.
+
+## 6. Keep the free back end awake
+
+Render's free plan sleeps after 15 minutes without visits. Asleep, it stops checking Outlook, and the first click
+takes about a minute. Render gives 750 free hours a month, enough to run one service all month, so keep it awake:
+
+1. Sign up (free) at uptimerobot.com.
+2. **New monitor → HTTP(s)**, URL `https://<your-service>.onrender.com/health`, every **5 minutes**. Save.
+
+It also emails you if the CRM ever goes down. (cron-job.org works the same way if you prefer it.)
+
+Free-plan limits worth knowing: it's slower (bulk imports take longer), Render may restart it at any time (an import
+running at that moment stops and is marked in Import history; run it again), and Render says the free plan isn't
+for production. For paying clients, switch the plan to Starter in Render → your service → Settings → Instance type.
 
 ## Updates
 
